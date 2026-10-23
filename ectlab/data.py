@@ -24,7 +24,7 @@ def signature(values, skip=(2,)):
     text = '\x1f'.join(format(v,'.12g') if isinstance(v,(float,int,np.number)) else str(v) for i,v in enumerate(values) if i not in skip)
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
-def read_workbook(path):
+def read_workbook(path, show_progress=False):
     """Read the supplied 106-column workbook including fills, without Excel or macros.
 
     This adapter is specific to the supplied two-header-row ECT template. A different
@@ -41,6 +41,7 @@ def read_workbook(path):
         rels = {v.get('Id'):v.get('Target') for v in E.fromstring(z.read('xl/_rels/workbook.xml.rels'))}
         wb = E.fromstring(z.read('xl/workbook.xml'))
         for sh in wb.find(NS+'sheets'):
+            sheet_start = len(records)
             target = rels[sh.get(REL+'id')]
             part = target.lstrip('/') if target.startswith('/') else posixpath.normpath('xl/'+target)
             for _, row in E.iterparse(z.open(part), events=('end',), tag=NS+'row'):
@@ -71,6 +72,7 @@ def read_workbook(path):
                                             yellow_any=bool(marks['yellow']), **{k+'_cells':','.join(sorted(v)) for k,v in marks.items()}))
                 row.clear()
                 while row.getprevious() is not None: del row.getparent()[0]
+            if show_progress: print(f'  {sh.get("name")} 시트: {len(records)-sheet_start:,}행 읽음',flush=True)
     df = pd.DataFrame(records)
     if df.empty: raise ValueError(f'측정 데이터가 없습니다: {path.name}')
     for col in ['orange_cells','bright_orange_cells','green_cells','gray_cells']:
@@ -94,8 +96,12 @@ def company_label(row):
 
 def convert_excel(original, returned, output):
     """Connect company labels to original rows by measurements; never by row number alone."""
-    old = read_workbook(original); new = read_workbook(returned)
+    print('1/4 원본 Excel을 읽습니다. 파일 크기에 따라 수 분 걸릴 수 있습니다.',flush=True)
+    old = read_workbook(original,show_progress=True)
+    print('2/4 기업 판정 Excel을 읽습니다.',flush=True)
+    new = read_workbook(returned,show_progress=True)
     if Path(original).name != Path(returned).name: raise ValueError('같은 품번 파일끼리 연결하세요.')
+    print('3/4 측정값을 기준으로 기업 라벨을 연결합니다.',flush=True)
     new['field_label'] = new.apply(company_label,axis=1)
     a = [signature(v) for v in old[COLUMNS].itertuples(index=False,name=None)]
     b = [signature(v) for v in new[COLUMNS].itertuples(index=False,name=None)]
@@ -116,6 +122,7 @@ def convert_excel(original, returned, output):
                        'mapping_status':status if len(labels)==1 else 'duplicate_conflict' if labels else 'not_found'})
     result = pd.concat([old[COLUMNS+['source_file','source_sheet','source_row','yellow_any']],pd.DataFrame(linked)],axis=1)
     output=Path(output); output.parent.mkdir(parents=True,exist_ok=True)
+    print('4/4 표준 CSV와 원본 파일 해시를 저장합니다.',flush=True)
     result.to_csv(output,index=False,encoding='utf-8-sig')
     import json
     output.with_name(output.name+'.provenance.json').write_text(json.dumps({'original_sha256':file_hash(original),'returned_sha256':file_hash(returned),

@@ -1,0 +1,53 @@
+name: Docker notebook check
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'compose.yaml'
+      - '.github/workflows/docker-check.yml'
+      - 'docker/**'
+      - 'ectlab/**'
+      - 'scripts/**'
+      - 'notebooks/**'
+      - 'requirements.txt'
+      - 'tests/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare synthetic CSV mount and output folder
+        run: |
+          mkdir -p /tmp/ect-ci/csv /tmp/ect-ci/output
+          cp data/demo/*.csv.gz /tmp/ect-ci/csv/C10A_49513-75270R.csv.gz
+          cat > .env <<EOF
+          ECT_CSV_DIR=/tmp/ect-ci/csv
+          ECT_OUTPUT_DIR=/tmp/ect-ci/output
+          ECT_DATA_MODE=company
+          ECT_UID=$(id -u)
+          ECT_GID=$(id -g)
+          ECT_PORT=18888
+          EOF
+          docker compose config --quiet
+      - name: Build image and start Jupyter
+        run: docker compose up -d --build --wait --wait-timeout 180
+      - name: Check separation rules and mounted notebook execution
+        run: |
+          docker compose exec -T notebook python -m pip check
+          docker compose exec -T notebook python -m unittest discover -s tests -v
+          docker compose exec -T notebook python scripts/verify_container.py
+      - name: Recreate container and confirm files remain
+        run: |
+          docker compose up -d --force-recreate --wait --wait-timeout 180
+          test -f /tmp/ect-ci/output/notebooks/검증_실행기록.ipynb
+          find /tmp/ect-ci/output/results -name '결과보고서.html' | grep -q .
+          docker compose exec -T notebook python -c "from pathlib import Path; assert Path('/workspace/notebooks/검증_실행기록.ipynb').is_file(); assert list(Path('/workspace/results').glob('*/결과보고서.html')); print('PASS: files survive container replacement')"
+      - name: Stop test containers
+        if: always()
+        run: docker compose down

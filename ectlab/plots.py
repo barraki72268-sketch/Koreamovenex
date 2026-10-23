@@ -9,7 +9,7 @@ LABELS={'OK':'설비 OK','NG_master':'NG 마스터','field_false':'기업 가성
 
 def style():
     from matplotlib import font_manager
-    candidates=['Malgun Gothic','NanumGothic','Noto Sans CJK KR','Noto Sans KR']
+    candidates=['Malgun Gothic','NanumGothic','Noto Sans CJK KR','Noto Sans KR','Noto Sans CJK JP']
     installed={f.name for f in font_manager.fontManager.ttflist}
     for name in candidates:
         if name in installed: plt.rcParams['font.family']=name; break

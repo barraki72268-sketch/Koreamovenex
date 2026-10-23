@@ -1,0 +1,17 @@
+# Allow only application code and the synthetic exercise file into the build context.
+**
+!Dockerfile
+!requirements.txt
+!ectlab/
+!ectlab/*.py
+!scripts/
+!scripts/*.py
+!tests/
+!tests/*.py
+!docker/
+!docker/*.py
+!notebooks/
+!notebooks/*.ipynb
+!data/
+!data/demo/
+!data/demo/연습용_ECT.csv.gz

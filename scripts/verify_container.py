@@ -3,6 +3,7 @@ from pathlib import Path
 import hashlib
 import json
 import os
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -10,6 +11,7 @@ import nbformat
 from nbclient import NotebookClient
 
 root=Path('/workspace')
+sys.path.insert(0, str(root))
 input_csv=Path(os.environ['ECT_CSV_PATH'])
 before=hashlib.sha256(input_csv.read_bytes()).hexdigest()
 try:

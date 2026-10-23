@@ -16,7 +16,7 @@ def prepare(root=Path('/workspace'), output=Path('/output'), templates=Path('/op
     # Demo mode must use the bundled synthetic file, even if a CSV mount is present.
     else:
         os.environ.pop('ECT_CSV_PATH', None)
-    for name in ('results', 'processed'):
+    for name in ('results', 'processed', 'notebooks'):
         folder = output / name
         folder.mkdir(parents=True, exist_ok=True)
         probe = folder / '.write-check'
@@ -34,8 +34,6 @@ def prepare(root=Path('/workspace'), output=Path('/output'), templates=Path('/op
 
 
 def main():
-    # An arbitrary NAS UID may not own the image's original home directory.
-    os.environ['HOME'] = f'/tmp/ect-home-{os.getuid()}'
     try:
         prepare()
     except (OSError, ValueError) as error:

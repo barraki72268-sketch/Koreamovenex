@@ -14,7 +14,7 @@ WORKDIR /workspace
 COPY requirements.txt /opt/ect/requirements.txt
 RUN python -m pip install --no-cache-dir -r /opt/ect/requirements.txt \
     && python -m pip check \
-    && python -m ipykernel install --sys-prefix --name movenex-ect --display-name "Python (Movenex ECT)"
+    && HOME=/root python -m ipykernel install --sys-prefix --name movenex-ect --display-name "Python (Movenex ECT)"
 COPY ectlab/ ./ectlab/
 COPY scripts/ ./scripts/
 COPY tests/ ./tests/

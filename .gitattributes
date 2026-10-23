@@ -5,3 +5,8 @@
 *.cmd text eol=crlf
 *.png binary
 *.gz binary
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+.env.example text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf

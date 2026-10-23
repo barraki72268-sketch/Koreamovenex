@@ -2,7 +2,7 @@
 
 ECT 검사기의 X/Y 측정값과 기업 판정을 비교하는 프로그램입니다. 위치 1과 위치 2를 따로 분석해 일반 NG를 가성 후보, 보류, 진성 의심으로 구분하고 결과를 표와 그래프로 저장합니다.
 
-Windows PC에서 Jupyter 노트북으로 실행합니다. 기본 분석에는 거리 기반 기준, Random Forest, XGBoost를 사용하며 CPU로 동작합니다. TabICLv2는 선택 설치로 제공합니다.
+Windows PC에 직접 설치하거나, 서버·NAS에서 Docker로 실행할 수 있습니다. 기본 분석에는 거리 기반 기준, Random Forest, XGBoost를 사용하며 CPU로 동작합니다. TabICLv2는 선택 설치로 제공합니다.
 
 저장소에는 실행을 익히기 위한 합성 데이터가 들어 있습니다. 실제 회사 데이터는 별도로 전달받아 사용합니다.
 
@@ -17,6 +17,8 @@ Python 3.12가 설치된 PC라면 다음 순서로 실행할 수 있습니다.
 
 처음 설치하는 경우에는 아래 [설치](#설치) 항목부터 진행합니다.
 
+서버나 NAS의 CSV를 연결하려면 [Docker로 실행](#docker로-실행)을 참고합니다. 서버 담당자가 한 번 설치하면 사용자는 브라우저에서 노트북 링크만 열면 됩니다.
+
 | 자료 | 내용 |
 |---|---|
 | [최종 정리 PPT](docs/presentations/한국무브넥스_ECT_1차분석_설치실행가이드_20261023.pptx) | 지금까지의 분석 결과와 설치·실행 안내, 26장 |
@@ -24,9 +26,101 @@ Python 3.12가 설치된 PC라면 다음 순서로 실행할 수 있습니다.
 | [02. 추가 데이터 변환과 재학습](notebooks/02_추가데이터_변환과_재학습.ipynb) | Excel 변환, CSV 병합, 재학습, 저장 모델 적용 |
 | [추가 데이터 가이드](docs/추가데이터_가이드.md) | 파일 형식, 라벨 연결 규칙, 날짜 설정 |
 | [서버 운영 가이드](docs/서버_운영가이드.md) | 서버 설치와 사용자별 실행 환경 구성 |
+| [Docker 설치·활용 가이드](docs/Docker_실행가이드.md) | 서버·NAS CSV 연결, 접속, 결과 보관, 추가 데이터 학습 |
 | [TabICLv2 안내](docs/선택모델_TabICL.md) | 선택 모델 설치와 [03번 노트북](notebooks/03_선택_TabICLv2_비교.ipynb) 실행 |
 
 GitHub에서는 노트북 내용을 미리 볼 수 있습니다. 계산을 실행하려면 PC의 Jupyter나 담당자가 전달한 서버에 접속해야 합니다.
+
+## Docker로 실행
+
+Docker는 Python, 분석 패키지와 Jupyter를 함께 실행하는 방법입니다. 서버에 Python을 따로 설치할 필요는 없습니다. Docker Engine과 Compose v2가 있는 Linux 서버 또는 Docker를 지원하는 NAS에서 사용합니다. Windows에서는 Docker Desktop의 Linux 컨테이너 모드를 사용합니다. 자동 검증 환경은 Linux x86-64이며, NAS 모델별 지원 여부는 별도 확인이 필요합니다.
+
+설치 안내: [Docker Engine](https://docs.docker.com/engine/install/), [Windows용 Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/).
+
+### 1. 코드와 데이터 폴더 준비
+
+서버에서 저장소를 내려받습니다. Git이 없으면 `Code > Download ZIP`으로 받아 압축을 풀어도 됩니다.
+
+```bash
+git clone https://github.com/barraki72268-sketch/Koreamovenex.git
+cd Koreamovenex
+cp .env.example .env
+```
+
+Windows PowerShell에서는 마지막 줄 대신 `Copy-Item .env.example .env`를 실행합니다.
+
+회사 CSV는 GitHub나 Docker 이미지에 올리지 않습니다. 별도로 받은 파일을 서버·NAS의 폴더에 넣고 그 폴더를 연결합니다. 다음은 폴더 배치 예시입니다.
+
+```text
+/volume1/movenex/
+├─ csv/
+│  └─ C10A_49513-75270R.csv.gz
+└─ output/
+```
+
+`csv`와 `output` 폴더를 먼저 만듭니다. NAS가 별도 장비라면 Docker가 실행되는 서버에 공유 폴더를 먼저 연결해야 합니다. `\\NAS\공유폴더` 같은 네트워크 주소를 그대로 입력하는 방식은 사용하지 않습니다.
+
+### 2. .env에서 경로 지정
+
+`.env`를 메모장이나 편집기로 열고 실제 경로를 적습니다.
+
+```dotenv
+ECT_CSV_DIR=/volume1/movenex/csv
+ECT_OUTPUT_DIR=/volume1/movenex/output
+ECT_CSV_FILE=C10A_49513-75270R.csv.gz
+ECT_PRODUCT=C10A_49513-75270R
+ECT_DATA_MODE=company
+ECT_BIND_IP=127.0.0.1
+ECT_PORT=8888
+ECT_UID=1000
+ECT_GID=1000
+```
+
+`ECT_CSV_DIR`는 파일이 들어 있는 폴더, `ECT_CSV_FILE`은 그 안의 파일명입니다. `.csv`와 `.csv.gz`를 모두 읽으며 `.gz`는 풀지 않습니다. Windows 경로는 `C:/MovenexECT/csv`처럼 `/`로 적습니다. 공백이 있는 경로는 따옴표로 감쌉니다.
+
+Linux·NAS에서는 `id -u`, `id -g`로 폴더를 사용할 계정의 번호를 확인해 `ECT_UID`, `ECT_GID`에 적습니다. 해당 계정에 CSV 폴더의 읽기 권한과 출력 폴더의 쓰기 권한이 있어야 합니다. Windows Docker Desktop에서는 기본값으로 시작합니다.
+
+### 3. 실행하고 노트북 열기
+
+```bash
+docker compose config --quiet
+docker compose up -d --build --wait --wait-timeout 180
+docker compose exec notebook python -m jupyter server list
+```
+
+처음에는 이미지와 패키지를 내려받으므로 시간이 걸립니다. 마지막 명령에 표시되는 `?token=...` 문자열이 로그인 토큰입니다. 서버 자체에서 접속할 때는 `http://127.0.0.1:8888`을 열고 토큰을 입력합니다. 포트를 바꿨다면 해당 포트로 접속합니다.
+
+다른 PC에서 접속할 때는 SSH 터널, 기관 HTTPS 주소 또는 내부망 접속 설정이 필요합니다. [접속 방법](docs/Docker_실행가이드.md#다른-pc에서-접속)을 참고합니다. `0.0.0.0`은 접속 주소로 사용하지 않습니다.
+
+로그인 후 아래 경로를 열고 `Run > Run All Cells`를 선택합니다. Docker 기본값은 회사 데이터 모드이므로 노트북 코드를 바꾸지 않아도 연결한 CSV를 읽습니다. CSV가 없으면 연습 데이터로 대신 실행하지 않고 오류를 표시합니다.
+
+```text
+/lab/tree/notebooks/01_처음부터_분석하기.ipynb
+```
+
+링크를 여는 것만으로 학습이 시작되지는 않습니다. 노트북에서 전체 실행을 눌러야 합니다.
+
+### 4. 결과 확인과 종료
+
+| 서버 폴더 | 저장 내용 | Jupyter에서 보이는 위치 |
+|---|---|---|
+| `ECT_OUTPUT_DIR/results` | 실행별 HTML·CSV·PNG·학습 모델 | `results` |
+| `ECT_OUTPUT_DIR/processed` | 추가 데이터 변환·병합 CSV | `data/processed` |
+| `ECT_OUTPUT_DIR/notebooks` | 노트북과 사용자가 저장한 설정·실행 기록 | `notebooks` |
+
+이 파일들은 서버에 남으므로 컨테이너를 교체해도 유지됩니다. 입력 CSV 폴더는 읽기 전용으로 연결합니다. 원본 파일은 바꾸지 않습니다. 노트북에 저장된 출력에도 회사 정보가 들어갈 수 있으므로 출력 폴더 역시 회사 자료로 관리합니다.
+
+```bash
+docker compose stop       # 일시 정지
+docker compose start      # 다시 시작
+docker compose down       # 컨테이너 종료·제거, 서버의 데이터와 결과는 유지
+```
+
+추가 CSV 학습, 업데이트, NAS 권한 오류와 접속 설정은 [Docker 설치·활용 가이드](docs/Docker_실행가이드.md)에 정리했습니다. 선택 모델 TabICLv2는 기본 Docker 이미지에 포함하지 않습니다.
+
+### 실행 검증
+
+[Docker 자동 검증](https://github.com/barraki72268-sketch/Koreamovenex/actions/workflows/docker-check.yml)에서 이미지 빌드, CSV 읽기 전용 연결, Jupyter 인증, 01번 노트북 전체 실행, CSV·HTML·PNG·위치별 모델 저장, 컨테이너 교체 후 파일 유지를 확인합니다. 공개 검증에는 합성 데이터만 사용하며 회사 데이터 성능 검증과 구분합니다. 각 실행의 성공 여부는 Actions의 초록색 체크로 확인할 수 있습니다.
 
 ## 설치
 

@@ -34,6 +34,8 @@ def prepare(root=Path('/workspace'), output=Path('/output'), templates=Path('/op
 
 
 def main():
+    # An arbitrary NAS UID may not own the image's original home directory.
+    os.environ['HOME'] = f'/tmp/ect-home-{os.getuid()}'
     try:
         prepare()
     except (OSError, ValueError) as error:

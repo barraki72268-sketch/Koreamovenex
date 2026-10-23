@@ -50,4 +50,6 @@ jobs:
           docker compose exec -T notebook python -c "from pathlib import Path; assert Path('/workspace/notebooks/검증_실행기록.ipynb').is_file(); assert list(Path('/workspace/results').glob('*/결과보고서.html')); print('PASS: files survive container replacement')"
       - name: Stop test containers
         if: always()
-        run: docker compose down
+        run: |
+          docker compose logs --no-color notebook | sed -E 's/token=[^[:space:]]+/token=REDACTED/g'
+          docker compose down

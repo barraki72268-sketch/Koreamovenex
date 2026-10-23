@@ -141,6 +141,7 @@ docker compose exec notebook python -c "import shutil; shutil.copyfile('/opt/ect
 - 입력 CSV의 읽기 전용 연결
 - 토큰 없는 접속 차단과 인증 후 노트북·결과 조회
 - 01번 노트북의 모든 셀 실행과 한글 그래프·CSV·HTML·위치별 모델 저장
+- 노트북 화면 내 그래프 표시와 02번 노트북의 CSV 병합·위치별 재학습
 - 컨테이너를 교체한 뒤 노트북과 결과 유지
 
 이는 배포 프로그램의 실행 검증입니다. 실제 NAS의 공유 권한, 네트워크 주소와 회사 데이터의 예측 성능은 별도 확인 항목입니다.

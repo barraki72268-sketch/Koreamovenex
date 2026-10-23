@@ -53,3 +53,24 @@ for relative in ('results/'+folder.name+'/결과보고서.html', 'notebooks/검�
     with urllib.request.urlopen(request, timeout=10) as response:
         assert response.status==200
 print('PASS: authenticated Jupyter, read-only mounted CSV, all notebook cells, Korean plots, CSV/HTML/model exports, persistent files')
+
+# Exercise notebook 02's CSV-only route with two disjoint date ranges.
+from ectlab.data import load_csv
+frame=load_csv(input_csv)
+base=root/'data/processed/ci_base.csv.gz'
+extra=root/'data/processed/ci_additional.csv.gz'
+frame[frame.date.le('2026-08-20')].to_csv(base,index=False)
+frame[frame.date.gt('2026-08-20')].to_csv(extra,index=False)
+os.environ['ECT_CSV_PATH']=str(base)
+second=nbformat.read(root/'notebooks/02_추가데이터_변환과_재학습.ipynb',as_version=4)
+cells=[c for c in second.cells if c.cell_type=='code']
+assert 'MERGE_FILES' in cells[3].source and 'TRAINING_CSV' in cells[4].source
+retrain=nbformat.v4.new_notebook(cells=[cells[0],cells[1],
+    nbformat.v4.new_code_cell('NEW_CSV = Path('+repr(str(extra))+')'),
+    nbformat.v4.new_code_cell(cells[3].source.replace('MERGE_FILES = False','MERGE_FILES = True')),
+    nbformat.v4.new_code_cell(cells[4].source.replace('TRAINING_CSV = NEW_CSV','TRAINING_CSV = MERGED_CSV')),
+    nbformat.v4.new_code_cell(f'assert len(new_df) == {len(frame)}\nassert len(packs) == 2\nassert len(ml_result["models"]) == 6')])
+NotebookClient(retrain,timeout=600,kernel_name='movenex-ect',resources={'metadata':{'path':str(root/'notebooks')}}).execute()
+nbformat.write(retrain,root/'notebooks/검증_CSV재학습.ipynb')
+assert before==hashlib.sha256(input_csv.read_bytes()).hexdigest()
+print('PASS: notebook 02 CSV merge and separate position retraining')

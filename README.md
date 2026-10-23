@@ -78,7 +78,7 @@ ECT_GID=1000
 
 `ECT_CSV_DIR`는 파일이 들어 있는 폴더, `ECT_CSV_FILE`은 그 안의 파일명입니다. `.csv`와 `.csv.gz`를 모두 읽으며 `.gz`는 풀지 않습니다. Windows 경로는 `C:/MovenexECT/csv`처럼 `/`로 적습니다. 공백이 있는 경로는 따옴표로 감쌉니다.
 
-Linux·NAS에서는 `id -u`, `id -g`로 폴더를 사용할 계정의 번호를 확인해 `ECT_UID`, `ECT_GID`에 적습니다. 해당 계정에 CSV 폴더의 읽기 권한과 출력 폴더의 쓰기 권한이 있어야 합니다. Windows Docker Desktop에서는 기본값으로 시작합니다.
+Linux·NAS에서는 `id -u`, `id -g`로 폴더를 사용할 일반 계정의 번호를 확인해 `ECT_UID`, `ECT_GID`에 적습니다. UID 0인 root 계정은 사용하지 않습니다. 해당 계정에 CSV 폴더의 읽기 권한과 출력 폴더의 쓰기 권한이 있어야 합니다. Windows Docker Desktop에서는 기본값으로 시작합니다.
 
 ### 3. 실행하고 노트북 열기
 
@@ -120,7 +120,7 @@ docker compose down       # 컨테이너 종료·제거, 서버의 데이터와 
 
 ### 실행 검증
 
-[Docker 자동 검증](https://github.com/barraki72268-sketch/Koreamovenex/actions/workflows/docker-check.yml)에서 이미지 빌드, CSV 읽기 전용 연결, Jupyter 인증, 01번 노트북 전체 실행, CSV·HTML·PNG·위치별 모델 저장, 컨테이너 교체 후 파일 유지를 확인합니다. 공개 검증에는 합성 데이터만 사용하며 회사 데이터 성능 검증과 구분합니다. 각 실행의 성공 여부는 Actions의 초록색 체크로 확인할 수 있습니다.
+[Docker 자동 검증](https://github.com/barraki72268-sketch/Koreamovenex/actions/workflows/docker-check.yml)에서 이미지 빌드, CSV 읽기 전용 연결, Jupyter 인증, 01번 노트북 전체 실행과 화면 내 그래프 표시, 02번 노트북의 CSV 병합·재학습, CSV·HTML·PNG·위치별 모델 저장, 컨테이너 교체 후 파일 유지를 확인합니다. 공개 검증에는 합성 데이터만 사용하며 회사 데이터 성능 검증과 구분합니다. 각 실행의 성공 여부는 Actions의 초록색 체크로 확인할 수 있습니다.
 
 ## 설치
 

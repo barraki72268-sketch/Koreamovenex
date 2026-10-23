@@ -38,6 +38,7 @@ notebook=nbformat.read(root/'notebooks/01_처음부터_분석하기.ipynb',as_ve
 assert all(not c.get('outputs') for c in notebook.cells if c.cell_type=='code')
 NotebookClient(notebook, timeout=600, kernel_name='movenex-ect', resources={'metadata':{'path':str(root/'notebooks')}}).execute()
 assert any('실제 회사 데이터입니다' in str(c.get('outputs', [])) for c in notebook.cells)
+assert sum('image/png' in o.get('data', {}) for c in notebook.cells for o in c.get('outputs', [])) >= 5, 'Notebook must display its graphs inline'
 nbformat.write(notebook, root/'notebooks/검증_실행기록.ipynb')
 reports=list((root/'results').glob('*/결과보고서.html'))
 assert reports

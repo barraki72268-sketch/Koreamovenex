@@ -5,7 +5,7 @@ RUN python -c "import json,pathlib; files=list(pathlib.Path('.').glob('*.ipynb')
 
 FROM python:3.12-slim-bookworm
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
-    MPLBACKEND=Agg OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 \
+    MPLBACKEND=module://matplotlib_inline.backend_inline OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 \
     HOME=/tmp/ect-home JUPYTER_RUNTIME_DIR=/tmp/jupyter-runtime ECT_PROJECT_ROOT=/workspace
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 fonts-noto-cjk && rm -rf /var/lib/apt/lists/* \

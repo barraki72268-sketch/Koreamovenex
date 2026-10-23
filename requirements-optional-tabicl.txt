@@ -1,0 +1,5 @@
+# Optional only. Base operation requires no PyTorch or model download.
+-r requirements.txt
+torch==2.14.1
+tabicl @ git+https://github.com/soda-inria/tabicl.git@c91f00df184a5097e584cb376f7e699e9f3444c4
+huggingface-hub==2.2.0

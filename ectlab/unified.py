@@ -113,9 +113,24 @@ def show_unified_app(root):
     import ipywidgets as w
     from IPython.display import display
     from ectlab.delivery_ui import show_delivery_app
+    from ectlab.batch import show_batch_app
+    batch=show_batch_app(root)
     new=w.Output();legacy=w.Output()
     with new:new_app=show_delivery_app(root)
     with legacy:legacy_app=show_legacy_app(root)
     tabs=w.Tab(children=[new,legacy]);tabs.set_title(0,'새 크랙·샤프트 Excel');tabs.set_title(1,'기존 자료 CSV')
-    display(tabs)
-    return {'tabs':tabs,'new':new_app,'legacy':legacy_app}
+    advanced=w.Accordion(children=[tabs]);advanced.set_title(0,'필요할 때만: 파일 하나씩 실행 / 새 파일 업로드');advanced.selected_index=None
+    display(advanced)
+    disabled_before=[]
+    def lock_controls(locked):
+        if locked:
+            disabled_before.clear()
+            def visit(widget):
+                if 'disabled' in widget.traits():disabled_before.append((widget,widget.disabled));widget.disabled=True
+                for child in getattr(widget,'children',()):visit(child)
+            visit(tabs)
+        else:
+            for widget,previous in disabled_before:widget.disabled=previous
+            disabled_before.clear()
+    batch['state']['lock_controls']=lock_controls
+    return {'batch':batch,'tabs':tabs,'new':new_app,'legacy':legacy_app,'advanced':advanced}

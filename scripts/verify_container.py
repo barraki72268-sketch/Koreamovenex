@@ -143,6 +143,14 @@ assert hashlib.sha256((root/target).read_bytes()).digest()==hashlib.sha256(data)
 print('PASS: multi-part authenticated HTTP upload, byte-for-byte workbook preservation')
 
 # The unified entry must start in the same mounted directory as the older notebooks.
+make_workbook(root/'notebooks/새Excel_업로드/shaft/전체실행_샤프트.xlsx','shaft')
+make_workbook(root/'notebooks/새Excel_업로드/crack/전체실행_크랙.xlsx','crack')
+manifest={'sources':[
+    {'key':'C10A','path':str(input_csv),'train_end':'2026-08-20'},
+    {'key':'C80B','path':str(input_csv),'train_end':'2026-08-20'},
+    {'key':'crack','path':'notebooks/새Excel_업로드/crack/전체실행_크랙.xlsx'},
+    {'key':'shaft','path':'notebooks/새Excel_업로드/shaft/전체실행_샤프트.xlsx'}]}
+(root/'notebooks/전체실행_자료.json').write_text(json.dumps(manifest,ensure_ascii=False),encoding='utf-8')
 ninth=nbformat.read(root/'notebooks/09_통합테스트_샘플별결과.ipynb',as_version=4)
 ninth.cells.append(nbformat.v4.new_code_cell('''
 assert len(통합화면['tabs'].children)==2
@@ -151,7 +159,16 @@ assert not 통합화면['new']['mode'].value
 assert 통합화면['new']['run'].disabled
 assert 통합화면['legacy']['pick'].options
 통합화면['tabs'].selected_index=1
+assert not 통합화면['batch']['run'].disabled
+통합화면['batch']['run'].click()
+batch_result=통합화면['batch']['state']['result']
+assert batch_result is not None, 통합화면['batch']['status'].value
+assert not batch_result['errors'], batch_result['errors']
+assert len(batch_result['panels'])==8
+assert len(batch_result['tables']['전체실행'])==4
+assert batch_result['zip'].is_file()
+assert not 통합화면['batch']['run'].disabled
 '''))
-NotebookClient(ninth,timeout=120,kernel_name='movenex-ect',resources={'metadata':{'path':str(root/'notebooks')}}).execute()
+NotebookClient(ninth,timeout=300,kernel_name='movenex-ect',resources={'metadata':{'path':str(root/'notebooks')}}).execute()
 assert any('application/vnd.jupyter.widget-view+json' in o.get('data',{}) for c in ninth.cells for o in c.get('outputs',[]))
 print('PASS: notebook 09 unified tabs, legacy CSV selection, default 6am boundary, preserved old entry points')

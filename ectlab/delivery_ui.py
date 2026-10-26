@@ -34,7 +34,7 @@ def save_upload(folder, name, content,extensions=('.xlsx',)):
     return target
 
 
-def analyze_files(files, root, with_ml=False, on_progress=None,crack_day_start_hour=6):
+def analyze_files(files, root, with_ml=False, on_progress=None,crack_day_start_hour=6,output_root=None):
     """Each run converts only the selected files into its own private folder."""
     files = {kind: Path(path) for kind, path in files.items() if path}
     if not files:
@@ -42,7 +42,7 @@ def analyze_files(files, root, with_ml=False, on_progress=None,crack_day_start_h
     if any(kind not in ('crack', 'shaft') for kind in files):
         raise ValueError('분석 대상을 확인해 주세요.')
     root = Path(root)
-    run = root / 'results' / ('Excel실행_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f') + '_' + uuid.uuid4().hex[:8])
+    run = Path(output_root or root) / 'results' / ('Excel실행_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f') + '_' + uuid.uuid4().hex[:8])
     inputs = run / '변환CSV'
     import hashlib,shutil
     from ectlab.data import file_hash

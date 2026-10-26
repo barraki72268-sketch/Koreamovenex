@@ -8,6 +8,7 @@ from ectlab.pipeline import evenly_sample
 
 
 def load_sample_matrix(folder,entry,rows):
+    folder=Path(folder)/entry.get('source_folder','')
     if entry['profile']=='legacy':
         raw=pd.read_csv(Path(folder)/'기존입력.csv.gz',low_memory=False)
         raw=raw[raw.position.eq(entry['position'])]
@@ -73,7 +74,7 @@ def show_sample_browser(result):
     from IPython.display import display,HTML,clear_output
     folder=Path(result['folder'])
     entries=json.loads((folder/'샘플결과_목록.json').read_text(encoding='utf-8'))['entries']
-    pick=w.Dropdown(options=[(f'{e["profile"]} / {e["line"]} / {e["product"]} / 위치 {e["position"]} / {e["condition"]}',i) for i,e in enumerate(entries)],description='결과 선택:',layout=w.Layout(width='98%'))
+    pick=w.Dropdown(options=[(f'{e.get("dataset",e["profile"])} / {e["line"]} / {e["product"]} / 위치 {e["position"]} / {e["condition"]}',i) for i,e in enumerate(entries)],description='결과 선택:',layout=w.Layout(width='98%'))
     kind=w.Dropdown(options=['일반 NG','MASTER','설비 OK','제외행','전체'],description='볼 샘플:')
     search=w.Text(description='검색:',placeholder='날짜, 검사번호, 원본 행, 샘플ID')
     page=w.BoundedIntText(value=1,min=1,max=1,description='페이지:')
@@ -128,6 +129,9 @@ def show_sample_browser(result):
             clear_output(wait=True)
             try:
                 entry=state['entry'];rows=state['rows'];stem=Path(entry['file']).name.removesuffix('.csv.gz')
+                if entry.get('source_folder'):
+                    import hashlib
+                    stem=hashlib.sha256(entry['file'].encode()).hexdigest()[:10]+'_'+stem
                 if tsne:
                     print('같은 입력 측정값으로 t-SNE를 계산합니다. 표본을 줄여 탐색하며 최종 판정용이 아닙니다.')
                     fig,coordinates=tsne_figure(folder,rows,entry)

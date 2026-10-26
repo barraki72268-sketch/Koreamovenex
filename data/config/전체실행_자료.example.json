@@ -1,0 +1,8 @@
+{
+  "sources": [
+    {"key": "C10A", "label": "기존 C10A", "path": "data/private/C10A_49513-75270R.csv.gz", "train_end": "2026-08-20", "calibration_end": "2026-10-07"},
+    {"key": "C80B", "label": "기존 C80B", "path": "data/private/C80B_49743-95284.csv.gz", "train_end": "2026-10-06", "calibration_end": "2026-10-07"},
+    {"key": "crack", "label": "새 크랙", "path": "data/private/261026_크랙검사 건.xlsx"},
+    {"key": "shaft", "label": "새 샤프트", "path": "data/private/261026_샤프트 열처리 검사 건.xlsx"}
+  ]
+}

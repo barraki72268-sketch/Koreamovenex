@@ -1,0 +1,37 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "1. 연습용 CSV 분석 (Windows)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "program": "${workspaceFolder}/scripts/run_analysis.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--input", "${workspaceFolder}/data/demo/연습용_ECT.csv.gz",
+        "--output", "${workspaceFolder}/results",
+        "--train-end", "2026-08-20",
+        "--calibration-end", "2026-10-07"
+      ]
+    },
+    {
+      "name": "2. 실제 회사 CSV 분석 (Windows)",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "program": "${workspaceFolder}/scripts/run_analysis.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--input", "${workspaceFolder}/data/private/C10A_49513-75270R.csv.gz",
+        "--output", "${workspaceFolder}/results",
+        "--train-end", "2026-08-20",
+        "--calibration-end", "2026-10-07"
+      ]
+    }
+  ]
+}

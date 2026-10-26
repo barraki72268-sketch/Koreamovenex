@@ -17,10 +17,13 @@ Python 3.12가 설치된 PC라면 다음 순서로 실행할 수 있습니다.
 
 처음 설치하는 경우에는 아래 [설치](#설치) 항목부터 진행합니다.
 
+Windows의 Visual Studio Code에서 실행하려면 [Windows·VS Code 실행 가이드](docs/Windows_VSCode_실행가이드.md)를 따라 진행합니다. Python 설치, 실행 환경·커널 선택, 노트북 실행과 F5로 `.py` 실행하는 방법을 순서대로 설명했습니다. Visual Studio IDE를 사용하는 경우의 안내도 포함했습니다.
+
 서버나 NAS의 CSV를 연결하려면 [Docker로 실행](#docker로-실행)을 참고합니다. 서버 담당자가 한 번 설치하면 사용자는 브라우저에서 노트북 링크만 열면 됩니다.
 
 | 자료 | 내용 |
 |---|---|
+| [Windows·VS Code 실행 가이드](docs/Windows_VSCode_실행가이드.md) | 처음 설치부터 노트북·Python 실행, 실제 CSV 분석과 결과 확인 |
 | [최종 정리 PPT](docs/presentations/한국무브넥스_ECT_1차분석_설치실행가이드_20261023.pptx) | 지금까지의 분석 결과와 설치·실행 안내, 26장 |
 | [01. 처음부터 분석하기](notebooks/01_처음부터_분석하기.ipynb) | 데이터 확인, 모델 실행, 시각화, 결과 저장 |
 | [02. 추가 데이터 변환과 재학습](notebooks/02_추가데이터_변환과_재학습.ipynb) | Excel 변환, CSV 병합, 재학습, 저장 모델 적용 |
@@ -30,6 +33,33 @@ Python 3.12가 설치된 PC라면 다음 순서로 실행할 수 있습니다.
 | [TabICLv2 안내](docs/선택모델_TabICL.md) | 선택 모델 설치와 [03번 노트북](notebooks/03_선택_TabICLv2_비교.ipynb) 실행 |
 
 GitHub에서는 노트북 내용을 미리 볼 수 있습니다. 계산을 실행하려면 PC의 Jupyter나 담당자가 전달한 서버에 접속해야 합니다.
+
+## Windows의 VS Code에서 빠르게 실행
+
+1. Python 3.12 64비트와 [VS Code](https://code.visualstudio.com/Download)를 설치합니다.
+2. `Code > Download ZIP`으로 내려받고 압축을 푼 뒤 `install_windows.cmd`를 한 번 실행합니다.
+3. VS Code에서 `File > Open Folder…`로 `README.md`가 있는 프로젝트 폴더를 엽니다.
+4. Microsoft의 `Python`, `Jupyter`, `Python Debugger` 확장을 설치합니다. 저장소에 권장 확장 목록을 넣었습니다.
+5. `Ctrl + Shift + P > Python: Select Interpreter`에서 프로젝트의 `.venv\Scripts\python.exe`를 선택합니다.
+6. 아래 두 방법 중 하나로 실행합니다.
+
+| 실행 방법 | 조작 | 결과 확인 |
+|---|---|---|
+| 셀과 그래프를 보면서 실행 | 01번 노트북 열기 → 오른쪽 위 `Select Kernel`에서 `.venv` 또는 `Python (Movenex ECT)` 선택 → `Run All` | 노트북 화면과 `results` 폴더 |
+| Python 파일로 바로 실행 | `Ctrl + Shift + D` → `1. 연습용 CSV 분석 (Windows)` 선택 → `F5` | 터미널 진행 상황과 `results` 폴더 |
+
+실제 회사 CSV는 별도로 받아 `data/private/C10A_49513-75270R.csv.gz`에 넣습니다. 노트북에서는 ②의 `DATA_MODE`를 `"company"`로 지정하고 커널을 다시 시작해 전체 실행합니다. F5에서는 `2. 실제 회사 CSV 분석 (Windows)`를 선택합니다.
+
+PowerShell 명령으로 실행할 수도 있습니다. VS Code의 `Terminal > New Terminal`에서 프로젝트 폴더를 기준으로 실행합니다.
+
+```powershell
+.\.venv\Scripts\python.exe scripts/run_analysis.py --input "data/demo/연습용_ECT.csv.gz"
+.\.venv\Scripts\python.exe scripts/run_analysis.py --input "data/private/C10A_49513-75270R.csv.gz"
+```
+
+위 두 줄은 각각 연습용·회사 데이터 실행 명령입니다. 필요한 한 줄만 실행하면 됩니다. 별도 가상환경 활성화나 PowerShell 실행 정책 변경은 필요하지 않습니다.
+
+완료되면 `results/실행시각/결과보고서.html`을 Windows 파일 탐색기에서 엽니다. `.py` 실행은 그림 4종을 저장하고, 01번 노트북은 주파수별 X/Y 비교를 포함해 5종을 제공합니다. 자세한 메뉴·파일 배치·문제 해결은 [단계별 가이드](docs/Windows_VSCode_실행가이드.md)에 정리했습니다.
 
 ## Docker로 실행
 

@@ -1,5 +1,7 @@
 .venv/
 .vs/
+notebooks/새CSV_업로드/
+downloads/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/

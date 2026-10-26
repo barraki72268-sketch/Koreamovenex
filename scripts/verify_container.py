@@ -76,3 +76,23 @@ NotebookClient(retrain,timeout=600,kernel_name='movenex-ect',resources={'metadat
 nbformat.write(retrain,root/'notebooks/검증_CSV재학습.ipynb')
 assert before==hashlib.sha256(input_csv.read_bytes()).hexdigest()
 print('PASS: notebook 02 CSV merge and separate position retraining')
+
+# New-data exploration is separate from supervised defect classification.
+import io
+import zipfile
+from ectlab.exploration import explore_csv, download_href
+import matplotlib.pyplot as plt
+exploration=explore_csv(input_csv,root/'results','shaft',True)
+assert set(exploration['counts']['위치'])=={1,2}
+href=download_href(exploration['zip'],root)
+request=urllib.request.Request('http://127.0.0.1:8888'+href,headers={'Authorization':'token '+info['token']})
+with urllib.request.urlopen(request,timeout=20) as response:
+    with zipfile.ZipFile(io.BytesIO(response.read())) as archive:
+        assert archive.testzip() is None
+        assert 'PCA보고서.html' in archive.namelist()
+for figure in exploration['figures'].values():plt.close(figure)
+fifth=nbformat.read(root/'notebooks/05_새데이터_PCA_버튼실행.ipynb',as_version=4)
+NotebookClient(fifth,timeout=120,kernel_name='movenex-ect',resources={'metadata':{'path':str(root/'notebooks')}}).execute()
+assert any('application/vnd.jupyter.widget-view+json' in output.get('data',{}) for cell in fifth.cells for output in cell.get('outputs',[]))
+assert before==hashlib.sha256(input_csv.read_bytes()).hexdigest()
+print('PASS: PCA by position, authenticated ZIP download, notebook 05 widgets, unchanged source CSV')

@@ -45,8 +45,31 @@ def analyze_files(files, root, with_ml=False, on_progress=None):
     root = Path(root)
     run = root / 'results' / ('Excel실행_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f') + '_' + uuid.uuid4().hex[:8])
     inputs = run / '변환CSV'
+    import hashlib,shutil
+    from ectlab.data import file_hash
+    import ectlab.delivery_excel as converter
+    converter_hash=file_hash(Path(converter.__file__))
     for kind, path in files.items():
-        convert_workbook(kind, path, inputs, on_progress=on_progress)
+        source_hash=file_hash(path)
+        key=hashlib.sha256((kind+source_hash+path.name+converter_hash).encode()).hexdigest()
+        cache=root/'data/processed/새Excel_변환캐시'/key
+        manifest=cache/'cache.json'
+        reusable=False
+        if manifest.is_file():
+            metadata=json.loads(manifest.read_text(encoding='utf-8'))
+            reusable=metadata.get('source_sha256')==source_hash and all((cache/name).is_file() and file_hash(cache/name)==digest for name,digest in metadata.get('files',{}).items()) and len(metadata.get('files',{}))==3
+        if reusable:
+            if on_progress:on_progress(('크랙' if kind=='crack' else '샤프트')+' · 같은 Excel의 검증된 변환 CSV를 읽습니다.')
+            inputs.mkdir(parents=True,exist_ok=True)
+            for name in metadata['files']:shutil.copyfile(cache/name,inputs/name)
+        else:
+            convert_workbook(kind, path, inputs, on_progress=on_progress)
+            cache.mkdir(parents=True,exist_ok=True)
+            hashes={}
+            for suffix in ('_raw.csv.gz','_schema.json','_inventory.json'):
+                name=kind+suffix
+                shutil.copyfile(inputs/name,cache/name);hashes[name]=file_hash(cache/name)
+            manifest.write_text(json.dumps({'source_sha256':source_hash,'converter_sha256':converter_hash,'files':hashes},ensure_ascii=False,indent=2),encoding='utf-8')
     result = run_delivery(inputs, run, pca_only=not with_ml,on_progress=on_progress)
     # Include converted CSVs and original-file hashes so the same run can be reproduced.
     import shutil

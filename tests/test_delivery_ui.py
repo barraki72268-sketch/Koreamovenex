@@ -9,9 +9,23 @@ from ectlab.delivery import run_delivery
 import pandas as pd
 import json
 from ectlab.chunk_upload import ChunkUpload
+from unittest.mock import patch
 
 
 class DeliveryUIIntegration(unittest.TestCase):
+    def test_cache_reuses_same_workbook_but_rebuilds_modified_csv(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            book=make_workbook(root/'크랙.xlsx','crack')
+            analyze_files({'crack':book},root)
+            with patch('ectlab.delivery_ui.convert_workbook',side_effect=AssertionError('Unexpected reconversion')):
+                result=analyze_files({'crack':book},root)
+            self.assertEqual(int(result['tables']['01_데이터수량'].측정행.sum()),100)
+            cached=next((root/'data/processed/새Excel_변환캐시').glob('*/crack_raw.csv.gz'))
+            cached.write_bytes(b'changed')
+            result=analyze_files({'crack':book},root)
+            self.assertEqual(int(result['tables']['01_데이터수량'].측정행.sum()),100)
+
     def test_http_upload_completion_selects_valid_excel_and_preserves_it(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)

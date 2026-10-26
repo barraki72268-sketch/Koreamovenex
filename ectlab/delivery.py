@@ -34,12 +34,13 @@ def feature_frame(g,profile):
 
 def nearest(a,b):return cdist(a,b).min(axis=1)/np.sqrt(a.shape[1])
 
-def run_delivery(input_folder,output_root):
-    style();folder=Path(output_root)/('신규검증_'+datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
+def run_delivery(input_folder,output_root,pca_only=False,on_progress=None):
+    style();folder=Path(output_root)/('신규검증_'+datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     folder.mkdir(parents=True,exist_ok=False);(folder/'models').mkdir()
     inventory=[];master_table=[];pca_stats=[];predictions=[];modelstats=[];distance_rows=[];dropped=[];notes=[];figures={};lineage=[];feature_tables=[]
     for profile in ('crack','shaft'):
         source=Path(input_folder)/(profile+'_raw.csv.gz')
+        if not source.is_file():continue
         raw=pd.read_csv(source,low_memory=False)
         schema=json.loads((Path(input_folder)/(profile+'_schema.json')).read_text(encoding='utf-8'));lineage.append(schema)
         raw['c6']=pd.to_numeric(raw.c6).astype(int)
@@ -47,6 +48,7 @@ def run_delivery(input_folder,output_root):
         for (line,product,position),group in raw.groupby(['c3','c4','c6'],sort=True):
             title=f'{"크랙" if profile=="crack" else "샤프트"}_{line}_{product}_위치{position}'
             title=title.replace('/','_').replace(chr(92),'_')
+            if on_progress:on_progress('PCA 계산 중 · '+title)
             g=group.sort_values(['c0','source_sheet','source_row'],kind='stable').reset_index(drop=True)
             X,descriptions=feature_frame(g,profile)
             feature_tables.extend(dict(검사=profile,라인=line,품번=product,위치=position,**f) for f in descriptions)
@@ -92,6 +94,7 @@ def run_delivery(input_folder,output_root):
                 pca_stats.append(dict(base,조건=variant,사용행=int(valid.sum()),입력수=A.shape[1],설명비율=float(pca.explained_variance_ratio_.sum()),MASTER행=int((master&valid).sum())))
                 coords=g.loc[valid,['c0','c1','c2','source_sheet','source_row']].copy();coords['구분']=labs;coords['PC1']=P[:,0];coords['PC2']=P[:,1];coords.to_csv(folder/(title+'_'+variant+'_PCA좌표.csv'),index=False,encoding='utf-8-sig')
             fig.suptitle('MASTER 기준시료에 대한 탐색 — 일반 NG의 진성·가성 미확정',fontsize=12);fig.tight_layout();fig.savefig(folder/(title+'_PCA.png'),dpi=140,bbox_inches='tight');figures[title+'_PCA']=fig;plt.close(fig)
+            if pca_only:continue
             days=sorted(g.c0.unique());testday=days[-1];train=g.c0.lt(testday).to_numpy();test=g.c0.eq(testday).to_numpy()
             # Train only on preceding dates. No random row splitting or reuse of held-out master.
             trainmaster=master&train&finite;trainok=ok&train&finite;testmaster=master&test&finite
@@ -118,13 +121,23 @@ def run_delivery(input_folder,output_root):
                     clf=classifier(modelname,settings,y);clf.fit(A[indices],y)
                     prob=clf.predict_proba(A[query])[:,list(clf.classes_).index(1)]
                     cats=np.where(prob>=.9,'기준시료 유사 높음',np.where(prob<=.1,'기준시료 유사 낮음','보류'))
+                    new_saturation=np.zeros(len(query),bool)
+                    if profile=='shaft' and variant=='학습일100·32767채널 제외':
+                        for f in descriptions:
+                            if f['feature'] not in features:continue
+                            values=X[f['feature']].to_numpy()[query]
+                            new_saturation |= np.isclose(np.abs(values),32767,rtol=0,atol=1e-9)
+                            if f['axis']=='측정값':new_saturation |= np.isclose(values,100,rtol=0,atol=1e-9)
+                        new_saturation &= test[query]
+                        cats[new_saturation]='보류'
                     out=g.iloc[query][['c0','c1','c2','c5','c7','source_sheet','source_row']].copy()
                     for k,v in base.items():out[k]=v
-                    out['조건']=variant;out['모델']=modelname;out['구분']=labels[query];out['구간']=np.where(test[query],'마지막 날짜 시험','이전 날짜 (학습일 포함)');out['점수']=prob;out['결과']=cats;out['학습포함']=np.isin(query,indices)
+                    out['조건']=variant;out['모델']=modelname;out['구분']=labels[query];out['구간']=np.where(test[query],'마지막 날짜 시험','이전 날짜 (학습일 포함)');out['점수']=prob;out['결과']=cats;out['학습포함']=np.isin(query,indices);out['시험일_추가포화']=new_saturation
                     predictions.append(out)
                     p=prob[master[query]&test[query]];o=prob[ok[query]&test[query]];n=prob[ng[query]&test[query]]
+                    pc=cats[master[query]&test[query]];oc=cats[ok[query]&test[query]];nc=cats[ng[query]&test[query]]
                     auc=roc_auc_score(np.r_[np.ones(len(p)),np.zeros(len(o))],np.r_[p,o]) if len(p) and len(o) else np.nan
-                    modelstats.append(dict(base,조건=variant,모델=modelname,입력수=len(features),학습MASTER=int(trainmaster.sum()),학습OK=len(okindices),학습최종일=max(g.loc[train,'c0']),시험일=testday,시험MASTER=len(p),MASTER점수=float(np.mean(p)) if len(p) else np.nan,MASTER높음=int((p>=.9).sum()),MASTER보류=int(((p>.1)&(p<.9)).sum()),MASTER낮음=int((p<=.1).sum()),시험OK=len(o),OK중높음=int((o>=.9).sum()),시험일반NG=len(n),NG높음=int((n>=.9).sum()),NG보류=int(((n>.1)&(n<.9)).sum()),NG낮음=int((n<=.1).sum()),MASTER대OK_AUC=auc))
+                    modelstats.append(dict(base,조건=variant,모델=modelname,입력수=len(features),학습MASTER=int(trainmaster.sum()),학습OK=len(okindices),학습최종일=max(g.loc[train,'c0']),시험일=testday,시험MASTER=len(p),MASTER점수=float(np.mean(p)) if len(p) else np.nan,MASTER높음=int((pc=='기준시료 유사 높음').sum()),MASTER보류=int((pc=='보류').sum()),MASTER낮음=int((pc=='기준시료 유사 낮음').sum()),시험OK=len(o),OK중높음=int((oc=='기준시료 유사 높음').sum()),시험일반NG=len(n),NG높음=int((nc=='기준시료 유사 높음').sum()),NG보류=int((nc=='보류').sum()),NG낮음=int((nc=='기준시료 유사 낮음').sum()),MASTER대OK_AUC=auc))
                     joblib.dump({'estimator':clf,'features':features,'profile':profile,'position':int(position),'line':line,'product':product,'train_ids':g.iloc[indices][['source_sheet','source_row']].to_dict('records'),'target':'first inspection MASTER assumption vs equipment OK, not true/false defect','test_date':testday},folder/'models'/(title+'_'+variant+'_'+modelname+'.joblib'))
                 # Existing four distance families, trained on prior-day OK and masters only.
                 scaler=RobustScaler().fit(A[trainok]);Z=scaler.transform(A)
@@ -149,6 +162,7 @@ def run_delivery(input_folder,output_root):
                     out['해석']=np.where(do<=ot,'OK분포 안/근처','OK분포 밖') if np.isnan(mt) else np.where(dm<=mt,'MASTER 근처',np.where(do>ot,'MASTER·OK 모두 멂','OK 근처/경계'))
                     out['확정진성가성']='미확정';distance_rows.append(out)
                 print(title,variant,'MASTER train/test',trainmaster.sum(),testmaster.sum(),'NG',ng.sum(),flush=True)
+    if not inventory:raise ValueError('분석할 크랙·샤프트 파일이 없습니다. Excel을 먼저 선택하세요.')
     tables={'01_데이터수량':pd.DataFrame(inventory),'02_MASTER가정_확인표':pd.DataFrame(master_table),'03_PCA요약':pd.DataFrame(pca_stats),'04_ML_마지막날짜시험':pd.DataFrame(modelstats),'05_ML_행별점수':pd.concat(predictions,ignore_index=True) if predictions else pd.DataFrame(),'06_거리4종_행별점수':pd.concat(distance_rows,ignore_index=True) if distance_rows else pd.DataFrame(),'07_100값_제외축':pd.DataFrame(dropped),'08_입력변수정의':pd.DataFrame(feature_tables)}
     for name,table in tables.items():table.to_csv(folder/(name+'.csv'),index=False,encoding='utf-8-sig')
     pd.DataFrame({'확인사항':notes}).to_csv(folder/'09_확인사항.csv',index=False,encoding='utf-8-sig')
@@ -157,6 +171,7 @@ def run_delivery(input_folder,output_root):
     if not stats.empty:
         for profile in ('crack','shaft'):
             t=stats[stats['검사'].eq(profile)]
+            if t.empty:continue
             fig,ax=plt.subplots(figsize=(12,max(4,len(t)*.25)))
             y=np.arange(len(t));names=t.apply(lambda r:f'{r["라인"]} P{r["위치"]} / {r["조건"]} / {r["모델"]}',axis=1)
             ax.barh(y,t['MASTER점수'],color=np.where(t['MASTER점수']>=.9,'#7951B0',np.where(t['MASTER점수']<=.1,'#DA9B30','#8C9DAF')));ax.set(yticks=y,yticklabels=names,xlim=(0,1),xlabel='마지막 날짜 MASTER 기준시료의 평균 모델 점수 (실제 불량 확률 아님)',title=('크랙' if profile=='crack' else '샤프트')+' · 이전 날짜로 학습한 뒤 마지막 날짜에서 확인');ax.axvline(.9,c='#7951B0',ls='--');ax.axvline(.1,c='#DA9B30',ls='--');fig.tight_layout();name=profile+'_ML_MASTER점수';fig.savefig(folder/(name+'.png'),dpi=140,bbox_inches='tight');figures[name]=fig;plt.close(fig)

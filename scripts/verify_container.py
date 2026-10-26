@@ -96,3 +96,48 @@ NotebookClient(fifth,timeout=120,kernel_name='movenex-ect',resources={'metadata'
 assert any('application/vnd.jupyter.widget-view+json' in output.get('data',{}) for cell in fifth.cells for output in cell.get('outputs',[]))
 assert before==hashlib.sha256(input_csv.read_bytes()).hexdigest()
 print('PASS: PCA by position, authenticated ZIP download, notebook 05 widgets, unchanged source CSV')
+
+# The company-facing Excel route must start from the mounted notebooks directory.
+sixth=nbformat.read(root/'notebooks/06_261026_크랙_샤프트_실제자료검증.ipynb',as_version=4)
+sixth.cells.append(nbformat.v4.new_code_cell('''
+from scripts.make_delivery_demo import make_workbook
+from ectlab.data import file_hash
+sample=make_workbook(ROOT/'notebooks/새Excel_업로드/shaft/사용법_예제_샤프트.xlsx','shaft')
+original_hash=file_hash(sample)
+selector=화면['selectors']['shaft']
+selector.options=[('선택 안 함',''),(sample.name,str(sample))]
+selector.value=str(sample)
+assert not 화면['run'].disabled
+화면['run'].click()
+result=화면['state']['result']
+assert result is not None, 화면['status'].value
+assert set(result['tables']['01_데이터수량']['위치'])=={1,2}
+assert len(result['tables']['03_PCA요약'])==8
+assert len(화면['choice'].options)==2 and 화면['choice'].value
+assert result['zip'].is_file()
+assert original_hash==file_hash(sample)
+selector.value=''
+assert 화면['state']['result'] is None
+assert not 화면['choice'].options
+assert 화면['run'].disabled
+'''))
+NotebookClient(sixth,timeout=240,kernel_name='movenex-ect',resources={'metadata':{'path':str(root/'notebooks')}}).execute()
+assert any('application/vnd.jupyter.widget-view+json' in o.get('data',{}) for c in sixth.cells for o in c.get('outputs',[]))
+print('PASS: notebook 06 Excel conversion, button callback, position PCA, automatic graph selection, ZIP, stale result clearing')
+
+# Exercise Jupyter's authenticated HTTP chunk path above one websocket message.
+import base64
+from scripts.make_delivery_demo import make_workbook
+sample=make_workbook(root/'notebooks/새Excel_업로드/사용법_예제_전송검증.xlsx','crack')
+with zipfile.ZipFile(sample,'a',compression=zipfile.ZIP_STORED) as book:
+    book.writestr('synthetic-padding.bin',b'0'*(2*1024*1024))
+data=sample.read_bytes();step=1024*1024
+target='notebooks/새Excel_업로드/crack/upload_'+'a'*32+'.part'
+for offset in range(0,len(data),step):
+    body={'type':'file','format':'base64','content':base64.b64encode(data[offset:offset+step]).decode(),
+          'chunk':-1 if offset+step>=len(data) else offset//step+1}
+    request=urllib.request.Request('http://127.0.0.1:8888/api/contents/'+urllib.parse.quote(target),method='PUT',
+        headers={'Authorization':'token '+info['token'],'Content-Type':'application/json'},data=json.dumps(body).encode())
+    with urllib.request.urlopen(request,timeout=30) as response:assert response.status in (200,201)
+assert hashlib.sha256((root/target).read_bytes()).digest()==hashlib.sha256(data).digest()
+print('PASS: multi-part authenticated HTTP upload, byte-for-byte workbook preservation')

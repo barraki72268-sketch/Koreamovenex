@@ -12,6 +12,12 @@ data/raw/
 data/processed/
 results/
 checkpoints/
+gpu-work/
+notebooks/20261026_새자료_입력/
+notebooks/20261026_사전학습모델결과/
+*.ckpt
+*.npz
+*.tar.gz
 *.joblib
 *.pkl
 *.xlsx

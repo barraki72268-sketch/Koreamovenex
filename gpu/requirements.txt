@@ -1,0 +1,12 @@
+# Separate Python 3.10 GPU environment, used with torch 2.8.0 + CUDA 12.8.
+numpy==2.2.6
+pandas==2.3.3
+scipy==1.15.3
+scikit-learn==1.7.2
+matplotlib==3.10.9
+joblib==1.6.0
+einops==0.8.2
+huggingface-hub==2.3.0
+tokenizers==0.23.3
+transformers==5.20.2
+wandb==0.31.0

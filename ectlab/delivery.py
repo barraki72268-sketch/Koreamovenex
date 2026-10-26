@@ -34,7 +34,7 @@ def feature_frame(g,profile):
 
 def nearest(a,b):return cdist(a,b).min(axis=1)/np.sqrt(a.shape[1])
 
-def run_delivery(input_folder,output_root,pca_only=False,on_progress=None,crack_day_start_hour=0):
+def run_delivery(input_folder,output_root,pca_only=False,on_progress=None,crack_day_start_hour=0,retain_figures=True):
     style();folder=Path(output_root)/('신규검증_'+datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     folder.mkdir(parents=True,exist_ok=False);(folder/'models').mkdir()
     inventory=[];master_table=[];pca_stats=[];predictions=[];modelstats=[];distance_rows=[];dropped=[];notes=[];figures={};lineage=[];feature_tables=[];sample_index=[];master_changes=[]
@@ -108,7 +108,7 @@ def run_delivery(input_folder,output_root,pca_only=False,on_progress=None,crack_
                 ax.set(title=f'{line} / 위치 {position} / {variant}\n입력 {A.shape[1]}개 · 2축 설명 비율 {pca.explained_variance_ratio_.sum()*100:.1f}%',xlabel='PC1',ylabel='PC2');ax.legend(fontsize=7);ax.grid(alpha=.15)
                 pca_stats.append(dict(base,조건=variant,사용행=int(valid.sum()),입력수=A.shape[1],설명비율=float(pca.explained_variance_ratio_.sum()),MASTER행=int((master&valid).sum())))
                 coords=g.loc[valid,['c0','c1','c2','source_sheet','source_row']].copy();coords['구분']=labs;coords['PC1']=P[:,0];coords['PC2']=P[:,1];coords.to_csv(folder/(title+'_'+variant+'_PCA좌표.csv'),index=False,encoding='utf-8-sig')
-            fig.suptitle('MASTER 기준시료에 대한 탐색 — 일반 NG의 진성·가성 미확정',fontsize=12);fig.tight_layout();fig.savefig(folder/(title+'_PCA.png'),dpi=140,bbox_inches='tight');figures[title+'_PCA']=fig;plt.close(fig)
+            fig.suptitle('MASTER 기준시료에 대한 탐색 — 일반 NG의 진성·가성 미확정',fontsize=12);fig.tight_layout();fig.savefig(folder/(title+'_PCA.png'),dpi=140,bbox_inches='tight');figures[title+'_PCA']=fig if retain_figures else folder/(title+'_PCA.png');plt.close(fig)
             if pca_only:continue
             days=sorted(g.c0.unique());testday=days[-1];train=g.c0.lt(testday).to_numpy();test=g.c0.eq(testday).to_numpy()
             # Train only on preceding dates. No random row splitting or reuse of held-out master.
@@ -180,7 +180,16 @@ def run_delivery(input_folder,output_root,pca_only=False,on_progress=None,crack_
                     out['확정진성가성']='미확정';distance_rows.append(out)
                 print(title,variant,'MASTER train/test',trainmaster.sum(),testmaster.sum(),'NG',ng.sum(),flush=True)
     if not inventory:raise ValueError('분석할 크랙·샤프트 파일이 없습니다. Excel을 먼저 선택하세요.')
-    tables={'01_데이터수량':pd.DataFrame(inventory),'02_MASTER가정_확인표':pd.DataFrame(master_table),'03_PCA요약':pd.DataFrame(pca_stats),'04_ML_마지막날짜시험':pd.DataFrame(modelstats),'05_ML_행별점수':pd.concat(predictions,ignore_index=True) if predictions else pd.DataFrame(),'06_거리4종_행별점수':pd.concat(distance_rows,ignore_index=True) if distance_rows else pd.DataFrame(),'07_100값_제외축':pd.DataFrame(dropped),'08_입력변수정의':pd.DataFrame(feature_tables)}
+    if not retain_figures:
+        # Finished group arrays and canvases need not coexist with final table copies.
+        raw=group=g=X=A=Z=F=spaces=normalref=masterref=D=P=coords=fig=axes=ax=scaler=pca=pcam=whiten=W=ev=ew=clf=None
+        from ectlab.memory import release_working_memory
+        release_working_memory()
+    ml_table=pd.concat(predictions,ignore_index=True) if predictions else pd.DataFrame()
+    predictions.clear()
+    distance_table=pd.concat(distance_rows,ignore_index=True) if distance_rows else pd.DataFrame()
+    distance_rows.clear()
+    tables={'01_데이터수량':pd.DataFrame(inventory),'02_MASTER가정_확인표':pd.DataFrame(master_table),'03_PCA요약':pd.DataFrame(pca_stats),'04_ML_마지막날짜시험':pd.DataFrame(modelstats),'05_ML_행별점수':ml_table,'06_거리4종_행별점수':distance_table,'07_100값_제외축':pd.DataFrame(dropped),'08_입력변수정의':pd.DataFrame(feature_tables)}
     tables['12_크랙_MASTER변경']=pd.DataFrame(master_changes)
     from ectlab.sample_reports import finish_delivery_samples
     finish_delivery_samples(folder,sample_index,tables['05_ML_행별점수'],crack_day_start_hour)
@@ -194,7 +203,7 @@ def run_delivery(input_folder,output_root,pca_only=False,on_progress=None,crack_
             if t.empty:continue
             fig,ax=plt.subplots(figsize=(12,max(4,len(t)*.25)))
             y=np.arange(len(t));names=t.apply(lambda r:f'{r["라인"]} P{r["위치"]} / {r["조건"]} / {r["모델"]}',axis=1)
-            ax.barh(y,t['MASTER점수'],color=np.where(t['MASTER점수']>=.9,'#7951B0',np.where(t['MASTER점수']<=.1,'#DA9B30','#8C9DAF')));ax.set(yticks=y,yticklabels=names,xlim=(0,1),xlabel='마지막 날짜 MASTER 기준시료의 평균 모델 점수 (실제 불량 확률 아님)',title=('크랙' if profile=='crack' else '샤프트')+' · 이전 날짜로 학습한 뒤 마지막 날짜에서 확인');ax.axvline(.9,c='#7951B0',ls='--');ax.axvline(.1,c='#DA9B30',ls='--');fig.tight_layout();name=profile+'_ML_MASTER점수';fig.savefig(folder/(name+'.png'),dpi=140,bbox_inches='tight');figures[name]=fig;plt.close(fig)
+            ax.barh(y,t['MASTER점수'],color=np.where(t['MASTER점수']>=.9,'#7951B0',np.where(t['MASTER점수']<=.1,'#DA9B30','#8C9DAF')));ax.set(yticks=y,yticklabels=names,xlim=(0,1),xlabel='마지막 날짜 MASTER 기준시료의 평균 모델 점수 (실제 불량 확률 아님)',title=('크랙' if profile=='crack' else '샤프트')+' · 이전 날짜로 학습한 뒤 마지막 날짜에서 확인');ax.axvline(.9,c='#7951B0',ls='--');ax.axvline(.1,c='#DA9B30',ls='--');fig.tight_layout();name=profile+'_ML_MASTER점수';fig.savefig(folder/(name+'.png'),dpi=140,bbox_inches='tight');figures[name]=fig if retain_figures else folder/(name+'.png');plt.close(fig)
     disclaimer='크랙은 '+str(crack_day_start_hour)+'시를 검사일 경계로 사용하며 경계 이후 첫 검사 건을 MASTER 후보로 가정합니다. 경계 이전 새벽 측정은 전일에 속하고 전일 말미 데이터만 있으면 MASTER를 지정하지 않습니다. 샤프트는 검사번호에 NG마스터로 명시된 행을 우선 사용합니다. 일반 NG의 진성·가성 라벨은 없습니다. RF·XGBoost 점수는 MASTER 대 설비 OK의 유사성 점수이며 실제 불량 확률이나 진성·가성 정확도가 아닙니다. 학습은 마지막 날짜 이전 자료만 사용했습니다. 시험 MASTER가 적고 동일 기준시료의 반복 측정일 수 있어 일반화 성능을 입증하지 못합니다. 32767 반복값은 포화·상한 의심값으로 보고 별도의 보수적 비교에서 해당 채널도 제외합니다. 확정된 장비 사양은 아닙니다. 샤프트 100 제외는 측정값이 +100인 주파수 채널의 X/Y/측정값을 함께 제외하는 보수적 비교입니다. 원시 X/Y에는 100을 넘는 정상 값도 있어 단순 100 이상 잘라내기를 하지 않습니다. 최대값 0행은 판정 불명으로 제외합니다. C10A 보완 기준과 기존 모델은 형식·품번이 달라 그대로 적용하지 않았습니다. 거리 4종은 기존과 같은 방법 계열이지만 마스터가 적어 기존의 95% 임계값 판정은 만들지 못한 경우가 있으며 참고 거리로 제공합니다.'
     body='<html lang="ko"><meta charset="utf-8"><title>10월 26일 신규 자료 검증</title><style>body{font:16px/1.8 sans-serif;margin:30px;color:#18283c}table{border-collapse:collapse;font-size:13px}th,td{border:1px solid #ccd4dd;padding:7px}img{max-width:100%}.note{background:#fff2d6;padding:16px}</style><h1>신규 크랙·샤프트 자료 검증</h1><p class="note">'+disclaimer+'</p>'
     for name in ('01_데이터수량','02_MASTER가정_확인표','04_ML_마지막날짜시험'):

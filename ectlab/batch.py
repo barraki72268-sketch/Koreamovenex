@@ -76,6 +76,7 @@ def run_batch(root,jobs=None,with_ml=True,on_progress=None,on_panel=None):
     from ectlab.delivery_ui import analyze_files
     from ectlab.data import file_hash
     from ectlab.crack_view import panel_for_crack
+    from ectlab.memory import release_working_memory
     from threadpoolctl import threadpool_limits
     root=Path(root);jobs=read_batch_sources(root) if jobs is None else jobs
     if len(jobs)!=4 or {j['key'] for j in jobs}!=set(KEYS):raise ValueError('기존 2개와 새 자료 2개가 모두 필요합니다.')
@@ -136,7 +137,7 @@ def run_batch(root,jobs=None,with_ml=True,on_progress=None,on_panel=None):
                 summaries.append({'자료':label,'상태':'완료' if completed==len(selected) else '일부 시각화 확인 필요','위치별그림':completed,'전체조건수':len(result['sample_index']),'샘플수':sum(e['rows'] for e in selected),'결과폴더':relative.as_posix()})
                 # The outer archive already contains the child files.
                 if result['zip'].is_file():result['zip'].unlink()
-                del result;gc.collect()
+                del result;release_working_memory()
             except Exception as exc:
                 errors.append({'dataset':label,'stage':'분석','reason':str(exc)})
                 summaries.append({'자료':label,'상태':'실패','오류':str(exc)})

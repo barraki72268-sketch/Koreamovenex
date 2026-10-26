@@ -69,7 +69,7 @@ def analyze_files(files, root, with_ml=False, on_progress=None,crack_day_start_h
                 name=kind+suffix
                 shutil.copyfile(inputs/name,cache/name);hashes[name]=file_hash(cache/name)
             manifest.write_text(json.dumps({'source_sha256':source_hash,'converter_sha256':converter_hash,'files':hashes},ensure_ascii=False,indent=2),encoding='utf-8')
-    result = run_delivery(inputs, run, pca_only=not with_ml,on_progress=on_progress,crack_day_start_hour=crack_day_start_hour)
+    result = run_delivery(inputs, run, pca_only=not with_ml,on_progress=on_progress,crack_day_start_hour=crack_day_start_hour,retain_figures=False)
     # Include converted CSVs and original-file hashes so the same run can be reproduced.
     import shutil
     shutil.copytree(inputs, result['folder'] / '변환CSV')

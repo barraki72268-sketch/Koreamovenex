@@ -34,10 +34,10 @@ def show_workflow_app(root):
     family=w.Dropdown(options=[('C10 열처리 (기존 ECT)','c10'),('크랙','crack'),('샤프트 열처리','shaft')],description='자료 종류:',style=labelstyle,layout=wide)
     train=w.Dropdown(options=[('선택 안 함','')],description='학습 파일:',style=labelstyle,layout=wide)
     test=w.Dropdown(options=[('선택 안 함','')],description='검사 파일:',style=labelstyle,layout=wide)
-    drop=w.Checkbox(value=False,description='학습 데이터의 100·32767 포화 채널 제외')
+    drop=w.Checkbox(value=False,description='학습 데이터의 100·32767 포화 채널 제외',layout=wide)
     end=w.Text(description='학습 종료일:',placeholder='빈칸이면 선택 파일 전체 / 예: 2026-10-20',style=labelstyle,layout=wide)
     boundary=w.BoundedIntText(value=6,min=0,max=23,description='크랙 검사일 시작:',style=labelstyle)
-    model=w.Dropdown(options=[('Random Forest (기본)','RandomForest'),('XGBoost','XGBoost')],description='학습 모델:',style=labelstyle)
+    model=w.Dropdown(options=[('Random Forest (기본)','RandomForest'),('XGBoost','XGBoost')],description='학습 모델:',style=labelstyle,layout=wide)
     low=w.BoundedFloatText(value=.1,min=0,max=1,step=.05,description='낮음 기준:')
     high=w.BoundedFloatText(value=.9,min=0,max=1,step=.05,description='높음 기준:')
     first=w.Button(description='① 데이터 읽기 · 전처리',button_style='primary',icon='file',layout=w.Layout(width='270px',height='44px'))
@@ -158,7 +158,9 @@ def show_workflow_app(root):
             if options:tested.value=options[0][1]
             plot_test();page.value=1;render_rows()
             resultdownload.value='<p><a href="'+html.escape(download_href(result['zip'],root),quote=True)+'" download>이번 배치의 결과·PCA·전체 샘플 CSV 다운로드 ↓</a></p>'
-            s3.value='<p style="color:#21724b">'+str(len(rows))+'행 검사 완료. 같은 모델로 다음 파일도 ③번만 눌러 검사할 수 있습니다. 학습 파일과 중복 '+str(result['record']['training_overlap_rows'])+'행은 독립 검증으로 보지 않습니다.</p>'
+            overlaps=result['record']['training_overlap_rows']
+            overlap_note=('학습 파일과 중복 '+str(overlaps)+'행은 독립 검증으로 보지 않습니다.') if overlaps else '학습 파일과 중복 0행. 신규 입력의 실제 정확도는 정답 확인 후 검증합니다.'
+            s3.value='<p style="color:#21724b">'+str(len(rows))+'행 검사 완료. 같은 모델로 다음 파일도 ③번만 눌러 검사할 수 있습니다. '+overlap_note+'</p>'
         except Exception as exc:s3.value='<p>검사 확인 필요: '+html.escape(str(exc))+'</p>'
         finally:busy(False)
     first.on_click(prepare);second.on_click(fit);third.on_click(predict)

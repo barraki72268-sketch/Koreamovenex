@@ -151,8 +151,8 @@ manifest={'sources':[
     {'key':'crack','path':'notebooks/새Excel_업로드/crack/전체실행_크랙.xlsx'},
     {'key':'shaft','path':'notebooks/새Excel_업로드/shaft/전체실행_샤프트.xlsx'}]}
 (root/'notebooks/전체실행_자료.json').write_text(json.dumps(manifest,ensure_ascii=False),encoding='utf-8')
-ninth=nbformat.read(root/'notebooks/09_통합테스트_샘플별결과.ipynb',as_version=4)
-ninth.cells.append(nbformat.v4.new_code_cell('''
+research=nbformat.read(root/'notebooks/10_연구용_기존자료_일괄비교.ipynb',as_version=4)
+research.cells.append(nbformat.v4.new_code_cell('''
 assert len(통합화면['tabs'].children)==2
 assert 통합화면['new']['day_start'].value==6
 assert not 통합화면['new']['mode'].value
@@ -169,6 +169,41 @@ assert len(batch_result['tables']['전체실행'])==4
 assert batch_result['zip'].is_file()
 assert not 통합화면['batch']['run'].disabled
 '''))
-NotebookClient(ninth,timeout=300,kernel_name='movenex-ect',resources={'metadata':{'path':str(root/'notebooks')}}).execute()
-assert any('application/vnd.jupyter.widget-view+json' in o.get('data',{}) for c in ninth.cells for o in c.get('outputs',[]))
-print('PASS: notebook 09 unified tabs, legacy CSV selection, default 6am boundary, preserved old entry points')
+NotebookClient(research,timeout=300,kernel_name='movenex-ect',resources={'metadata':{'path':str(root/'notebooks')}}).execute()
+assert any('application/vnd.jupyter.widget-view+json' in o.get('data',{}) for c in research.cells for o in c.get('outputs',[]))
+print('PASS: research notebook 10 unified tabs, legacy CSV selection, default 6am boundary, preserved old entry points')
+
+# Company route: prepare/train once, change or upload tests, never refit on queries.
+training=nbformat.read(root/'notebooks/09_통합테스트_샘플별결과.ipynb',as_version=4)
+training.cells.append(nbformat.v4.new_code_cell('''
+import joblib,json
+from scripts.make_delivery_demo import make_workbook
+sample=make_workbook(ROOT/'notebooks/새Excel_업로드/crack/학습검사_합성예제.xlsx','crack')
+화면['family'].value='crack'
+화면['train'].options=[('합성 예제',str(sample))]
+화면['test'].options=[('합성 예제',str(sample))]
+화면['train'].value=str(sample)
+화면['end'].value='2026-10-24'
+화면['prepare'].click()
+assert 화면['state']['prepared'] is not None,화면['status'][0].value
+화면['fit'].click()
+bundle=화면['state']['bundle'];assert bundle is not None,화면['status'][1].value
+fingerprint=joblib.hash(bundle['models'])
+화면['test'].value=str(sample)
+화면['predict'].click()
+result=화면['state']['result'];assert result is not None,화면['status'][2].value
+assert len(result['rows'])==100
+assert result['record']['training_overlap_rows']==50
+assert not result['record']['refitted'] and not result['record']['PCA_refitted']
+assert result['zip'].is_file()
+part=화면['upload_test'].folder/('upload_'+'c'*32+'.part');part.write_bytes(sample.read_bytes())
+화면['upload_test'].receive({'new':json.dumps({'action':'finish','part':part.name,'name':'다음검사.xlsx'})})
+assert not 화면['upload_test'].error,화면['upload_test'].error
+assert 화면['state']['bundle'] is bundle,'Test upload must not invalidate trained model'
+화면['predict'].click()
+assert 화면['state']['result'] is not None,화면['status'][2].value
+assert joblib.hash(bundle['models'])==fingerprint,'Queries may not refit model/PCA'
+'''))
+NotebookClient(training,timeout=300,kernel_name='movenex-ect',resources={'metadata':{'path':str(root/'notebooks')}}).execute()
+assert any('application/vnd.jupyter.widget-view+json' in o.get('data',{}) for c in training.cells for o in c.get('outputs',[]))
+print('PASS: new notebook 09 prepare/train/repeated batches, frozen PCA/models, new upload preserves model, overlap marked, report download')

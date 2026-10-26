@@ -27,6 +27,7 @@ def attach_crack_view(result,root,source,start_hour=6):
             if group['status']=='ready':
                 for key in ('plot','scores_default','scores_preserve'):
                     if group[key] not in manifest['files']:raise ValueError('GPU 결과 목록에 없는 파일')
+                if group.get('comparison_plot') and group['comparison_plot'] not in manifest['files']:raise ValueError('GPU 대조 그림 목록 확인 필요')
         for key in ('summary_plot','summary_csv'):
             if manifest[key] not in manifest['files']:raise ValueError('GPU 요약 목록 확인 필요')
     except Exception as exc:
@@ -42,6 +43,8 @@ def attach_crack_view(result,root,source,start_hour=6):
             stem=re.sub(r'[^\w가-힣.-]+','_',str(item['line'])+'_'+str(item['product'])+'_위치'+str(item['position']))
             primary=folder/('TabICLv2_'+stem+'_PCA.png');shutil.copyfile(cache/item['plot'],primary)
             item['display_file']=str(primary)
+            if item.get('comparison_plot'):
+                comparison=folder/('TabICLv2_'+stem+'_원본대조_PCA.png');shutil.copyfile(cache/item['comparison_plot'],comparison);item['comparison_file']=str(comparison)
         groups.append(item)
     index=result.get('sample_index',[])
     for entry in index:
@@ -70,7 +73,9 @@ def attach_crack_view(result,root,source,start_hour=6):
         with report.open('a',encoding='utf-8') as f:
             f.write('<h2>크랙 TabICLv2 저장 GPU 실험</h2><p>'+html.escape(view['message'])+'</p><img src="TabICLv2_저장GPU결과/'+html.escape(manifest['summary_plot'],quote=True)+'">')
             for group in groups:
-                if group['status']=='ready':f.write('<h3>'+html.escape(str(group['line'])+' 위치 '+str(group['position']))+'</h3><img src="'+Path(group['display_file']).name+'">')
+                if group['status']=='ready':
+                    f.write('<h3>'+html.escape(str(group['line'])+' 위치 '+str(group['position']))+'</h3><img src="'+Path(group['display_file']).name+'">')
+                    if group.get('comparison_file'):f.write('<details><summary>원본 측정값과 같은 샘플로 비교</summary><img src="'+Path(group['comparison_file']).name+'"></details>')
                 else:f.write('<p>'+html.escape(str(group['line'])+' 위치 '+str(group['position'])+': '+group['reason'])+'</p>')
     return view
 
@@ -83,4 +88,4 @@ def panel_for_crack(result,entry):
     if not group or group['status']!='ready':return None
     return {'title':f'{entry["line"]} / {entry["product"]} / 위치 {entry["position"]} · TabICLv2 내부 특징 (저장 GPU 결과)',
             'file':group['display_file'],'rows':group['query_rows'],'valid_rows':group['query_rows'],'tsne_rows':group['plot_rows'],
-            'notice':group.get('notice',''),'view':'TabICLv2_default_saved_GPU'}
+            'notice':group.get('notice',''),'view':'TabICLv2_default_saved_GPU',**({'comparison_file':group['comparison_file']} if group.get('comparison_file') else {})}

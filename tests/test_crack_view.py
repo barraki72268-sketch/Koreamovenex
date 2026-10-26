@@ -18,7 +18,7 @@ class CrackViewTests(unittest.TestCase):
         score.to_csv(cache/'scores.csv.gz',index=False)
         pd.DataFrame({'model':['TabICLv2_default'],'test_MASTER':[1]}).to_csv(cache/'summary.csv',index=False)
         (cache/'plot.png').write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII='))
-        group={'line':'C','product':'P','position':3,'status':'ready','plot':'plot.png','scores_default':'scores.csv.gz','scores_preserve':'scores.csv.gz','query_rows':3,'plot_rows':3}
+        group={'line':'C','product':'P','position':3,'status':'ready','plot':'plot.png','comparison_plot':'plot.png','scores_default':'scores.csv.gz','scores_preserve':'scores.csv.gz','query_rows':3,'plot_rows':3}
         manifest={'source_sha256':file_hash(source),'crack_day_start_hour':6,'job_id':'test','groups':[group],
                   'files':{p.name:file_hash(p) for p in cache.iterdir()},'summary_plot':'plot.png','summary_csv':'summary.csv'}
         (cache/'manifest.json').write_text(json.dumps(manifest),encoding='utf-8')
@@ -29,6 +29,7 @@ class CrackViewTests(unittest.TestCase):
             root=Path(temp);source,result,entry,cache=self.make_fixture(root)
             view=attach_crack_view(result,root,source,6)
             self.assertEqual(view['status'],'matched');self.assertTrue(Path(panel_for_crack(result,entry)['file']).is_file())
+            self.assertTrue(Path(panel_for_crack(result,entry)['comparison_file']).is_file())
             rows=pd.read_csv(result['folder']/entry['file'])
             self.assertTrue(pd.isna(rows.loc[0,'TabICLv2점수']))
             self.assertEqual(rows.loc[1,'TabICLv2점수'],.99)

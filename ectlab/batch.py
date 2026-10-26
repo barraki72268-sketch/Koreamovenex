@@ -121,6 +121,8 @@ def run_batch(root,jobs=None,with_ml=True,on_progress=None,on_panel=None):
                         panel=panel_for_crack(result,entry) if key=='crack' else None
                         if panel:
                             shutil.copyfile(panel['file'],target);panel['file']=str(target)
+                            if panel.get('comparison_file'):
+                                comparison=target.with_name(target.stem+'_원본대조.png');shutil.copyfile(panel['comparison_file'],comparison);panel['comparison_file']=str(comparison)
                         else:
                             panel=make_gallery_panel(result['folder'],entry,target)
                             if key=='crack':
@@ -151,7 +153,9 @@ def run_batch(root,jobs=None,with_ml=True,on_progress=None,on_panel=None):
     body='<html lang="ko"><meta charset="utf-8"><title>전체 자료 분석</title><style>body{font:16px/1.7 sans-serif;margin:24px}img{max-width:100%}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:7px}</style><h1>기존·신규 전체 자료 분석</h1>'+table.to_html(index=False)
     body+='<p>'+html.escape(policy['display'])+'</p><p>'+html.escape(policy['tsne'])+'</p>'
     for notice in notices:body+='<p>'+html.escape(notice)+'</p>'
-    for panel in panels:body+='<h2>'+html.escape(panel['dataset']+' / '+panel['title'])+'</h2><p>'+html.escape(panel.get('notice',''))+'</p><img src="gallery/'+Path(panel['file']).name+'">'
+    for panel in panels:
+        body+='<h2>'+html.escape(panel['dataset']+' / '+panel['title'])+'</h2><p>'+html.escape(panel.get('notice',''))+'</p><img src="gallery/'+Path(panel['file']).name+'">'
+        if panel.get('comparison_file'):body+='<details><summary>원본과 같은 샘플로 비교</summary><img src="gallery/'+Path(panel['comparison_file']).name+'"></details>'
     for error in errors:body+='<p>확인 필요: '+html.escape(str(error))+'</p>'
     (folder/'전체자료_보고서.html').write_text(body,encoding='utf-8')
     progress('전체 자료 결과를 ZIP으로 저장하고 있습니다.')
@@ -182,6 +186,10 @@ def show_batch_app(root):
                 if panel.get('notice'):display(HTML('<p>'+html.escape(panel['notice'])+'</p>'))
                 if panel.get('error'):display(HTML('<p>확인 필요: '+html.escape(panel['error'])+'</p>'))
                 elif panel.get('file'):display(Image(filename=panel['file']))
+                if panel.get('comparison_file'):
+                    comparison=w.Output()
+                    with comparison:display(Image(filename=panel['comparison_file']))
+                    box=w.Accordion(children=[comparison]);box.set_title(0,'원본과 같은 샘플로 비교');box.selected_index=None;display(box)
         try:
             result=run_batch(root,on_progress=progress,on_panel=panel_ready);state['result']=result
             with output:

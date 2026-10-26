@@ -172,6 +172,3 @@ def run_delivery(input_folder,output_root):
     shutil.copyfile(__file__,folder/'재현코드.py')
     archive=Path(shutil.make_archive(str(folder),'zip',root_dir=folder))
     return {'folder':folder,'zip':archive,'tables':tables,'figures':figures,'notes':notes}
-
-
-

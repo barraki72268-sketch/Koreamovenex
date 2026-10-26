@@ -119,4 +119,3 @@ def main():
  write_json(out/'COMPLETED.json',{'datasets':len(set(summary.id)) if len(summary) else 0,'successful_evaluations':len(summary),'errors':sum('error' in e for e in errors),'skips':sum('skip' in e for e in errors),'job_id':os.environ['SLURM_JOB_ID']})
  print('EXPERIMENT_COMPLETE',flush=True)
 if __name__=='__main__':main()
-

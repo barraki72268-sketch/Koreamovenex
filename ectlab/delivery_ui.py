@@ -34,7 +34,7 @@ def save_upload(folder, name, content,extensions=('.xlsx',)):
     return target
 
 
-def analyze_files(files, root, with_ml=False, on_progress=None,crack_day_start_hour=6,output_root=None):
+def analyze_files(files, root, with_ml=False, on_progress=None,crack_day_start_hour=6,output_root=None,use_crack_view=False):
     """Each run converts only the selected files into its own private folder."""
     files = {kind: Path(path) for kind, path in files.items() if path}
     if not files:
@@ -78,11 +78,14 @@ def analyze_files(files, root, with_ml=False, on_progress=None,crack_day_start_h
         'mode': 'PCA + RF + XGBoost' if with_ml else 'PCA',
         'company_labels': '일반 NG 진성·가성 미확정',
     }, ensure_ascii=False, indent=2), encoding='utf-8')
+    if use_crack_view and files.get('crack'):
+        from ectlab.crack_view import attach_crack_view
+        attach_crack_view(result,root,files['crack'],crack_day_start_hour)
     result['zip'] = Path(shutil.make_archive(str(result['folder']), 'zip', root_dir=result['folder']))
     return result
 
 
-def show_delivery_app(root):
+def show_delivery_app(root,crack_tabicl=False):
     import ipywidgets as w
     from ectlab.chunk_upload import ChunkUpload
     from IPython.display import display, HTML, Image, clear_output
@@ -193,15 +196,18 @@ def show_delivery_app(root):
                 if message.startswith('PCA'):busy.value=2
                 status.value='<p style="background:#eaf3fc;padding:12px">'+html.escape(message)+'<br>계산이 끝나면 결과가 아래에 나타납니다.</p>'
             with log:
-                result = analyze_files(state['files'], root, ml.value, on_progress=progress,crack_day_start_hour=day_start.value)
+                result = analyze_files(state['files'], root, ml.value, on_progress=progress,crack_day_start_hour=day_start.value,use_crack_view=crack_tabicl)
             state['result'] = result
             busy.value = 2
             with resultbox:
                 display(HTML('<h3>③ 분석 결과</h3><p>보라색 별 = MASTER · 회색 점 = 설비 OK · 주황색 점 = 일반 NG(진성·가성 미확정)</p>'))
                 table = result['tables']['01_데이터수량']
                 display(table[['검사', '라인', '품번', '위치', '측정행', 'MASTER기준시료', '일반NG', '최대값0']])
+                if result.get('tabicl_view'):
+                    display(HTML('<p>'+html.escape(result['tabicl_view']['message'])+'</p>'))
+                    if result['tabicl_view'].get('summary_file'):display(Image(filename=result['tabicl_view']['summary_file']))
                 display(HTML('<p>아래 목록에서 품번·위치를 골라 보세요. 샤프트는 원본·100값 제외·X/Y만 사용·100 및 32767 제외 그림을 함께 보여줍니다.</p>'))
-            pcas = sorted(p.name for p in result['folder'].glob('*_PCA.png'))
+            pcas = sorted((p.name for p in result['folder'].glob('*_PCA.png')),key=lambda name:(not name.startswith('TabICLv2_'),name))
             choice.options = [(p.removesuffix('_PCA.png').replace('_', ' / '), p) for p in pcas]
             if pcas:
                 choice.value = pcas[0]

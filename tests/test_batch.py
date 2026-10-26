@@ -24,7 +24,7 @@ class BatchTests(unittest.TestCase):
             # Both synthetic legacy files have the demo's original training dates.
             for j in jobs:j['train_end']='2026-08-20'
             before={str(j['path']):hashlib.sha256(j['path'].read_bytes()).hexdigest() for j in jobs}
-            panels=[];result=run_batch(root,jobs=jobs,with_ml=False,on_panel=panels.append)
+            panels=[];result=run_batch(root,jobs=jobs,with_ml=False,on_panel=lambda p:panels.append(p) if p.get('file') or p.get('error') else None)
             self.assertFalse(result['errors']);self.assertEqual(len(panels),8)
             self.assertEqual(len(result['tables']['전체실행']),4)
             self.assertEqual(len(result['sample_index']),14)

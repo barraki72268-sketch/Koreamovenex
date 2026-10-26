@@ -109,7 +109,9 @@ def show_sample_browser(result):
         with listing:
             clear_output(wait=True)
             display(HTML(f'<p>검색 결과 {len(filtered):,}행 · 페이지 {page.value}/{page.max} · 50행씩 표시. CSV에는 제외행까지 전체가 저장됩니다.</p>'))
-            cols=[c for c in ['샘플ID','원본날짜','시간','검사일','설비판정','현장판정','분석가능','NG_MASTER거리','OK거리','거리참고','기존거리판정','기존MASTER거리비율','기존OK거리비율','RF점수','RF결과','XGBoost점수','XGBoost결과'] if c in shown]
+            if 'TabICLv2점수' in rows:
+                display(HTML('<p>TabICLv2는 같은 원본의 저장 GPU 시험 결과입니다. 위쪽 TabICLv2 내부 특징 그림과 달리, 여기의 다른 PCA 축·확대·t-SNE 버튼은 원본 입력 측정값의 참고 그림입니다.</p>'))
+            cols=[c for c in ['샘플ID','원본날짜','시간','검사일','설비판정','현장판정','분석가능','NG_MASTER거리','OK거리','거리참고','기존거리판정','기존MASTER거리비율','기존OK거리비율','RF점수','RF결과','XGBoost점수','XGBoost결과','TabICLv2점수','TabICLv2결과'] if c in shown]
             display(shown[cols])
         select.options=[(str(row['원본날짜'])+' '+str(row['시간'])+' / 원본행 '+str(row['원본행'])+' / '+str(row['설비판정']),int(i)) for i,row in shown.iterrows()]
         if len(shown):select.value=int(shown.index[0])

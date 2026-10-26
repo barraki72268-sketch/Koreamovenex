@@ -116,7 +116,7 @@ def show_unified_app(root):
     from ectlab.batch import show_batch_app
     batch=show_batch_app(root)
     new=w.Output();legacy=w.Output()
-    with new:new_app=show_delivery_app(root)
+    with new:new_app=show_delivery_app(root,crack_tabicl=True)
     with legacy:legacy_app=show_legacy_app(root)
     tabs=w.Tab(children=[new,legacy]);tabs.set_title(0,'새 크랙·샤프트 Excel');tabs.set_title(1,'기존 자료 CSV')
     advanced=w.Accordion(children=[tabs]);advanced.set_title(0,'필요할 때만: 파일 하나씩 실행 / 새 파일 업로드');advanced.selected_index=None

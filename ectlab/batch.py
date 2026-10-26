@@ -75,6 +75,7 @@ def run_batch(root,jobs=None,with_ml=True,on_progress=None,on_panel=None):
     from ectlab.unified import run_legacy
     from ectlab.delivery_ui import analyze_files
     from ectlab.data import file_hash
+    from ectlab.crack_view import panel_for_crack
     from threadpoolctl import threadpool_limits
     root=Path(root);jobs=read_batch_sources(root) if jobs is None else jobs
     if len(jobs)!=4 or {j['key'] for j in jobs}!=set(KEYS):raise ValueError('기존 2개와 새 자료 2개가 모두 필요합니다.')
@@ -86,7 +87,7 @@ def run_batch(root,jobs=None,with_ml=True,on_progress=None,on_panel=None):
     if os.name=='nt' and not str(folder).startswith('\\\\?\\'):
         folder=Path('\\\\?\\'+str(folder.resolve()))
     folder.mkdir(parents=True);(folder/'gallery').mkdir()
-    summaries=[];all_entries=[];panels=[];errors=[];sources=[]
+    summaries=[];all_entries=[];panels=[];errors=[];sources=[];notices=[]
     def progress(message):
         if on_progress:on_progress(message)
     with threadpool_limits(limits=2):
@@ -99,16 +100,33 @@ def run_batch(root,jobs=None,with_ml=True,on_progress=None,on_panel=None):
                 if key in ('C10A','C80B'):
                     result=run_legacy(path,jobroot,with_ml,job.get('train_end','2026-10-06' if key=='C80B' else '2026-08-20'),job.get('calibration_end','2026-10-07'))
                 else:
-                    result=analyze_files({key:path},root,with_ml,on_progress=lambda m:progress(f'{number}/4 · {label} · {m}'),crack_day_start_hour=6,output_root=jobroot)
+                    result=analyze_files({key:path},root,with_ml,on_progress=lambda m:progress(f'{number}/4 · {label} · {m}'),crack_day_start_hour=6,output_root=jobroot,use_crack_view=(key=='crack'))
                 relative=result['folder'].relative_to(folder)
                 for entry in result['sample_index']:
                     merged=dict(entry,dataset=label,source_folder=relative.as_posix(),file=(relative/entry['file']).as_posix());all_entries.append(merged)
+                view=result.get('tabicl_view',{})
+                if view:
+                    notices.append(view['message'])
+                    if on_panel:on_panel({'dataset':label,'title':'크랙 표시 방식','notice':view['message']})
+                    if view.get('summary_file'):
+                        summary_target=folder/'gallery/crack_00_TabICLv2_점수비교.png';shutil.copyfile(view['summary_file'],summary_target)
+                        panel={'dataset':label,'title':'RF·XGBoost·TabICLv2 점수 비교 (저장 GPU 시험)','file':str(summary_target),'notice':view['message']}
+                        panels.append(panel)
+                        if on_panel:on_panel(panel)
                 selected=gallery_entries(result['sample_index']);completed=0
                 for index,entry in enumerate(selected,1):
                     progress(f'{number}/4 · {label} · PCA·t-SNE {index}/{len(selected)} · {entry["line"]} 위치 {entry["position"]}')
                     target=folder/'gallery'/f'{key}_{index:02d}_PCA_tSNE.png'
                     try:
-                        panel=make_gallery_panel(result['folder'],entry,target);panel['dataset']=label;panels.append(panel);completed+=1
+                        panel=panel_for_crack(result,entry) if key=='crack' else None
+                        if panel:
+                            shutil.copyfile(panel['file'],target);panel['file']=str(target)
+                        else:
+                            panel=make_gallery_panel(result['folder'],entry,target)
+                            if key=='crack':
+                                group=next((g for g in view.get('groups',[]) if str(g['line'])==entry['line'] and str(g['product'])==entry['product'] and g['position']==entry['position']),None)
+                                panel['notice']=('TabICLv2 비교 불가: '+group['reason']+' · 원본 PCA/t-SNE 참고 그림입니다.') if group and group['status']=='skipped' else view.get('message','원본 측정값 PCA/t-SNE입니다.')
+                        panel['dataset']=label;panels.append(panel);completed+=1
                         if on_panel:on_panel(panel)
                     except ValueError as exc:
                         errors.append({'dataset':label,'position':entry['position'],'product':entry['product'],'stage':'시각화','reason':str(exc)})
@@ -128,10 +146,12 @@ def run_batch(root,jobs=None,with_ml=True,on_progress=None,on_panel=None):
             'display':'품번·위치별 PCA/t-SNE 자동 표시. 샤프트는 100·32767 채널 전체 제외 조건을 일관되게 표시. 다른 PCA 조건도 하위 보고서에 저장. 계산 불가 조건은 이유를 기록하며 유리한 그림으로 바꾸지 않음.',
             'tsne':'같은 입력으로 OK 최대 1000 + 나머지 최대 1000행, seed42, 750회. 확정 진성·가성 성능이 아님. 원본 행은 전체 샘플 CSV에 보존.'}
     (folder/'샘플결과_목록.json').write_text(json.dumps({'entries':all_entries,'policy':policy},ensure_ascii=False,indent=2),encoding='utf-8')
-    (folder/'전체실행_기록.json').write_text(json.dumps({'sources':sources,'with_ml':with_ml,'crack_day_start_hour':6,'errors':errors,'policy':policy},ensure_ascii=False,indent=2),encoding='utf-8')
+    policy['crack_TabICLv2']='같은 원본 SHA256·6시 경계의 저장 GPU 실험만 크랙에 표시. 공식 기본 설정을 일관되게 사용하며 큰값 보존 설정도 결과에 포함. 새 파일·다른 경계·손상 결과는 원본 보기로 안내. 이번 실행의 신규 GPU 학습이 아님.'
+    (folder/'전체실행_기록.json').write_text(json.dumps({'sources':sources,'with_ml':with_ml,'crack_day_start_hour':6,'errors':errors,'notices':notices,'policy':policy},ensure_ascii=False,indent=2),encoding='utf-8')
     body='<html lang="ko"><meta charset="utf-8"><title>전체 자료 분석</title><style>body{font:16px/1.7 sans-serif;margin:24px}img{max-width:100%}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:7px}</style><h1>기존·신규 전체 자료 분석</h1>'+table.to_html(index=False)
     body+='<p>'+html.escape(policy['display'])+'</p><p>'+html.escape(policy['tsne'])+'</p>'
-    for panel in panels:body+='<h2>'+html.escape(panel['dataset']+' / '+panel['title'])+'</h2><img src="gallery/'+Path(panel['file']).name+'">'
+    for notice in notices:body+='<p>'+html.escape(notice)+'</p>'
+    for panel in panels:body+='<h2>'+html.escape(panel['dataset']+' / '+panel['title'])+'</h2><p>'+html.escape(panel.get('notice',''))+'</p><img src="gallery/'+Path(panel['file']).name+'">'
     for error in errors:body+='<p>확인 필요: '+html.escape(str(error))+'</p>'
     (folder/'전체자료_보고서.html').write_text(body,encoding='utf-8')
     progress('전체 자료 결과를 ZIP으로 저장하고 있습니다.')
@@ -159,8 +179,9 @@ def show_batch_app(root):
         def panel_ready(panel):
             with output:
                 display(HTML('<h3>'+html.escape(panel['dataset']+' / '+panel['title'])+'</h3>'))
+                if panel.get('notice'):display(HTML('<p>'+html.escape(panel['notice'])+'</p>'))
                 if panel.get('error'):display(HTML('<p>확인 필요: '+html.escape(panel['error'])+'</p>'))
-                else:display(Image(filename=panel['file']))
+                elif panel.get('file'):display(Image(filename=panel['file']))
         try:
             result=run_batch(root,on_progress=progress,on_panel=panel_ready);state['result']=result
             with output:

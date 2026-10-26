@@ -34,10 +34,10 @@ def feature_frame(g,profile):
 
 def nearest(a,b):return cdist(a,b).min(axis=1)/np.sqrt(a.shape[1])
 
-def run_delivery(input_folder,output_root,pca_only=False,on_progress=None):
+def run_delivery(input_folder,output_root,pca_only=False,on_progress=None,crack_day_start_hour=0):
     style();folder=Path(output_root)/('신규검증_'+datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     folder.mkdir(parents=True,exist_ok=False);(folder/'models').mkdir()
-    inventory=[];master_table=[];pca_stats=[];predictions=[];modelstats=[];distance_rows=[];dropped=[];notes=[];figures={};lineage=[];feature_tables=[]
+    inventory=[];master_table=[];pca_stats=[];predictions=[];modelstats=[];distance_rows=[];dropped=[];notes=[];figures={};lineage=[];feature_tables=[];sample_index=[];master_changes=[]
     for profile in ('crack','shaft'):
         source=Path(input_folder)/(profile+'_raw.csv.gz')
         if not source.is_file():continue
@@ -49,13 +49,25 @@ def run_delivery(input_folder,output_root,pca_only=False,on_progress=None):
             title=f'{"크랙" if profile=="crack" else "샤프트"}_{line}_{product}_위치{position}'
             title=title.replace('/','_').replace(chr(92),'_')
             if on_progress:on_progress('PCA 계산 중 · '+title)
-            g=group.sort_values(['c0','source_sheet','source_row'],kind='stable').reset_index(drop=True)
+            g=group.sort_values(['c0','source_sheet','source_row'],kind='stable').reset_index(drop=True).copy()
+            if profile=='crack' and crack_day_start_hour:
+                from ectlab.inspection_day import crack_inspection_days
+                old_first=set(zip(g.groupby('c0').head(1).source_sheet,g.groupby('c0').head(1).source_row))
+                g,master=crack_inspection_days(g,crack_day_start_hour)
+                old=np.array([(row.source_sheet,row.source_row) in old_first for row in g.itertuples()])
+                for i in np.flatnonzero(old!=master):
+                    master_changes.append({'라인':line,'품번':product,'위치':position,'원본날짜':g.at[i,'calendar_date'],'시간':str(g.at[i,'c1']),'검사일':g.at[i,'c0'],'시트':g.at[i,'source_sheet'],'행':int(g.at[i,'source_row']),'기존MASTER':bool(old[i]),'수정MASTER':bool(master[i]),'설비판정':g.at[i,'c5']})
+                first=np.flatnonzero(master)
+                missing=set(g.c0)-set(g.loc[master,'c0'])
+                if missing:notes.append(title+': '+','.join(sorted(missing))+' 검사일은 전일 말미 데이터만 있어 MASTER를 지정하지 않았습니다.')
+            else:
+                g['calendar_date']=g.c0
+                first=g.groupby('c0').head(1).index.to_numpy();master=np.zeros(len(g),bool);master[first]=True
+                if profile=='shaft':
+                    master=g.c2.astype(str).str.contains('마스터|MASTER',case=False,regex=True).to_numpy()
+                    first=np.flatnonzero(master)
             X,descriptions=feature_frame(g,profile)
             feature_tables.extend(dict(검사=profile,라인=line,품번=product,위치=position,**f) for f in descriptions)
-            first=g.groupby('c0').head(1).index.to_numpy();master=np.zeros(len(g),bool);master[first]=True
-            if profile=='shaft':
-                master=g.c2.astype(str).str.contains('마스터|MASTER',case=False,regex=True).to_numpy()
-                first=np.flatnonzero(master)
             # The user's stated company instruction defines the first inspection as master.
             # Equipment OK and max=0 are preserved as conflicts, not overwritten as true labels.
             ok=g.c5.eq('OK').to_numpy()&~master;ng=g.c5.eq('NG').to_numpy()&~master
@@ -63,7 +75,7 @@ def run_delivery(input_folder,output_root,pca_only=False,on_progress=None):
             saturation=np.isclose(X.to_numpy(),100,rtol=0,atol=1e-9)
             finite=np.isfinite(X).all(axis=1).to_numpy()&g.c7.ne(0).to_numpy()
             for i in first:
-                master_table.append({'검사':profile,'라인':line,'품번':product,'위치':position,'날짜':g.at[i,'c0'],'시트':g.at[i,'source_sheet'],'행':int(g.at[i,'source_row']),'검사번호':str(g.at[i,'c2']),'설비판정':g.at[i,'c5'],'최대측정값':g.at[i,'c7'],'측정축100':int(saturation[i].sum()),'최대값100':bool(g.at[i,'c7']==100),'유효측정':bool(finite[i]),'마스터근거':'검사번호의 NG마스터 명시' if profile=='shaft' else '각 날짜 첫 검사라는 전달 지침; 개별 식별 회신 필요'})
+                master_table.append({'검사':profile,'라인':line,'품번':product,'위치':position,'날짜':g.at[i,'c0'],'원본날짜':g.at[i,'calendar_date'],'시간':str(g.at[i,'c1']),'시트':g.at[i,'source_sheet'],'행':int(g.at[i,'source_row']),'검사번호':str(g.at[i,'c2']),'설비판정':g.at[i,'c5'],'최대측정값':g.at[i,'c7'],'측정축100':int(saturation[i].sum()),'최대값100':bool(g.at[i,'c7']==100),'유효측정':bool(finite[i]),'마스터근거':'검사번호의 NG마스터 명시' if profile=='shaft' else str(crack_day_start_hour)+'시 검사일 경계 이후 첫 검사; 설비 OK/최대값0 충돌은 확인 필요'})
             base={'검사':profile,'라인':line,'품번':product,'위치':position}
             inventory.append(dict(base,측정행=len(g),검사일수=g.c0.nunique(),시작일=g.c0.min(),종료일=g.c0.max(),설비OK=int(g.c5.eq('OK').sum()),설비NG=int(g.c5.eq('NG').sum()),MASTER기준시료=int(master.sum()),일반NG=int(ng.sum()),입력수=X.shape[1],최대값0=int(g.c7.eq(0).sum()),최대값100=int(g.c7.eq(100).sum()),측정축100행=int(saturation.any(axis=1).sum()),X결측행=int((~finite).sum())))
             # Zero max does not invalidate nonzero shaft X/Y, unlike the older C10A export.
@@ -82,6 +94,9 @@ def run_delivery(input_folder,output_root,pca_only=False,on_progress=None):
             fig,axes=plt.subplots(2,2,figsize=(14,11.2),squeeze=False) if profile=='shaft' else plt.subplots(1,1,figsize=(7,5.6),squeeze=False)
             for ax,(variant,mask) in zip(axes.ravel(),variants):
                 A=X.loc[:,mask].to_numpy();valid=np.isfinite(A).all(axis=1)&g.c7.ne(0).to_numpy()
+                from ectlab.sample_reports import write_delivery_samples
+                entry=write_delivery_samples(folder,title,variant,g,X,mask,valid,master,labels,profile,line,product,position)
+                sample_index.append(entry)
                 if A.shape[1]<2 or valid.sum()<3:
                     ax.text(.5,.5,f'PCA 불가: 남은 입력 {A.shape[1]}개',ha='center');continue
                 fitok=ok&valid
@@ -97,7 +112,8 @@ def run_delivery(input_folder,output_root,pca_only=False,on_progress=None):
             if pca_only:continue
             days=sorted(g.c0.unique());testday=days[-1];train=g.c0.lt(testday).to_numpy();test=g.c0.eq(testday).to_numpy()
             # Train only on preceding dates. No random row splitting or reuse of held-out master.
-            trainmaster=master&train&finite;trainok=ok&train&finite;testmaster=master&test&finite
+            confirmed_reference=~(master & g.c5.ne('NG').to_numpy()) if profile=='crack' and crack_day_start_hour else np.ones(len(g),bool)
+            trainmaster=master&train&finite&confirmed_reference;trainok=ok&train&finite;testmaster=master&test&finite&confirmed_reference
             train100=np.isclose(X.to_numpy()[train&finite],100,rtol=0,atol=1e-9).any(axis=0)
             mlvariants=[('전체 측정값',np.ones(X.shape[1],bool))]
             if profile=='shaft':
@@ -112,7 +128,7 @@ def run_delivery(input_folder,output_root,pca_only=False,on_progress=None):
                 if len(features)<2 or trainmaster.sum()<1 or trainok.sum()<3:
                     notes.append(title+'/'+variant+': 학습 MASTER·OK 또는 남은 입력 부족으로 ML 생략.');continue
                 valid=np.isfinite(A).all(axis=1)&g.c7.ne(0).to_numpy()
-                trainmaster=master&train&valid;trainok=ok&train&valid;testmaster=master&test&valid
+                trainmaster=master&train&valid&confirmed_reference;trainok=ok&train&valid;testmaster=master&test&valid&confirmed_reference
                 okindices=evenly_sample(np.flatnonzero(trainok),1500);indices=np.r_[np.flatnonzero(trainmaster),okindices]
                 y=master[indices].astype(int);query=np.flatnonzero((ng|testmaster|(ok&test))&valid)
                 if len(np.unique(y))<2:continue
@@ -130,12 +146,13 @@ def run_delivery(input_folder,output_root,pca_only=False,on_progress=None):
                             if f['axis']=='측정값':new_saturation |= np.isclose(values,100,rtol=0,atol=1e-9)
                         new_saturation &= test[query]
                         cats[new_saturation]='보류'
+                    if profile=='crack' and crack_day_start_hour:cats[master[query]&g.c5.ne('NG').to_numpy()[query]]='보류'
                     out=g.iloc[query][['c0','c1','c2','c5','c7','source_sheet','source_row']].copy()
                     for k,v in base.items():out[k]=v
                     out['조건']=variant;out['모델']=modelname;out['구분']=labels[query];out['구간']=np.where(test[query],'마지막 날짜 시험','이전 날짜 (학습일 포함)');out['점수']=prob;out['결과']=cats;out['학습포함']=np.isin(query,indices);out['시험일_추가포화']=new_saturation
                     predictions.append(out)
-                    p=prob[master[query]&test[query]];o=prob[ok[query]&test[query]];n=prob[ng[query]&test[query]]
-                    pc=cats[master[query]&test[query]];oc=cats[ok[query]&test[query]];nc=cats[ng[query]&test[query]]
+                    p=prob[testmaster[query]];o=prob[ok[query]&test[query]];n=prob[ng[query]&test[query]]
+                    pc=cats[testmaster[query]];oc=cats[ok[query]&test[query]];nc=cats[ng[query]&test[query]]
                     auc=roc_auc_score(np.r_[np.ones(len(p)),np.zeros(len(o))],np.r_[p,o]) if len(p) and len(o) else np.nan
                     modelstats.append(dict(base,조건=variant,모델=modelname,입력수=len(features),학습MASTER=int(trainmaster.sum()),학습OK=len(okindices),학습최종일=max(g.loc[train,'c0']),시험일=testday,시험MASTER=len(p),MASTER점수=float(np.mean(p)) if len(p) else np.nan,MASTER높음=int((pc=='기준시료 유사 높음').sum()),MASTER보류=int((pc=='보류').sum()),MASTER낮음=int((pc=='기준시료 유사 낮음').sum()),시험OK=len(o),OK중높음=int((oc=='기준시료 유사 높음').sum()),시험일반NG=len(n),NG높음=int((nc=='기준시료 유사 높음').sum()),NG보류=int((nc=='보류').sum()),NG낮음=int((nc=='기준시료 유사 낮음').sum()),MASTER대OK_AUC=auc))
                     joblib.dump({'estimator':clf,'features':features,'profile':profile,'position':int(position),'line':line,'product':product,'train_ids':g.iloc[indices][['source_sheet','source_row']].to_dict('records'),'target':'first inspection MASTER assumption vs equipment OK, not true/false defect','test_date':testday},folder/'models'/(title+'_'+variant+'_'+modelname+'.joblib'))
@@ -164,6 +181,9 @@ def run_delivery(input_folder,output_root,pca_only=False,on_progress=None):
                 print(title,variant,'MASTER train/test',trainmaster.sum(),testmaster.sum(),'NG',ng.sum(),flush=True)
     if not inventory:raise ValueError('분석할 크랙·샤프트 파일이 없습니다. Excel을 먼저 선택하세요.')
     tables={'01_데이터수량':pd.DataFrame(inventory),'02_MASTER가정_확인표':pd.DataFrame(master_table),'03_PCA요약':pd.DataFrame(pca_stats),'04_ML_마지막날짜시험':pd.DataFrame(modelstats),'05_ML_행별점수':pd.concat(predictions,ignore_index=True) if predictions else pd.DataFrame(),'06_거리4종_행별점수':pd.concat(distance_rows,ignore_index=True) if distance_rows else pd.DataFrame(),'07_100값_제외축':pd.DataFrame(dropped),'08_입력변수정의':pd.DataFrame(feature_tables)}
+    tables['12_크랙_MASTER변경']=pd.DataFrame(master_changes)
+    from ectlab.sample_reports import finish_delivery_samples
+    finish_delivery_samples(folder,sample_index,tables['05_ML_행별점수'],crack_day_start_hour)
     for name,table in tables.items():table.to_csv(folder/(name+'.csv'),index=False,encoding='utf-8-sig')
     pd.DataFrame({'확인사항':notes}).to_csv(folder/'09_확인사항.csv',index=False,encoding='utf-8-sig')
     # Summary graph compares model scores, not claimed defect-detection accuracy.
@@ -175,7 +195,7 @@ def run_delivery(input_folder,output_root,pca_only=False,on_progress=None):
             fig,ax=plt.subplots(figsize=(12,max(4,len(t)*.25)))
             y=np.arange(len(t));names=t.apply(lambda r:f'{r["라인"]} P{r["위치"]} / {r["조건"]} / {r["모델"]}',axis=1)
             ax.barh(y,t['MASTER점수'],color=np.where(t['MASTER점수']>=.9,'#7951B0',np.where(t['MASTER점수']<=.1,'#DA9B30','#8C9DAF')));ax.set(yticks=y,yticklabels=names,xlim=(0,1),xlabel='마지막 날짜 MASTER 기준시료의 평균 모델 점수 (실제 불량 확률 아님)',title=('크랙' if profile=='crack' else '샤프트')+' · 이전 날짜로 학습한 뒤 마지막 날짜에서 확인');ax.axvline(.9,c='#7951B0',ls='--');ax.axvline(.1,c='#DA9B30',ls='--');fig.tight_layout();name=profile+'_ML_MASTER점수';fig.savefig(folder/(name+'.png'),dpi=140,bbox_inches='tight');figures[name]=fig;plt.close(fig)
-    disclaimer='크랙은 전달 지침에 따라 날짜·위치별 첫 검사 건을 MASTER로 가정합니다. 샤프트는 검사번호에 NG마스터로 명시된 행을 우선 사용합니다. 일반 NG의 진성·가성 라벨은 없습니다. RF·XGBoost 점수는 MASTER 대 설비 OK의 유사성 점수이며 실제 불량 확률이나 진성·가성 정확도가 아닙니다. 학습은 마지막 날짜 이전 자료만 사용했습니다. 시험 MASTER가 적고 동일 기준시료의 반복 측정일 수 있어 일반화 성능을 입증하지 못합니다. 32767 반복값은 포화·상한 의심값으로 보고 별도의 보수적 비교에서 해당 채널도 제외합니다. 확정된 장비 사양은 아닙니다. 샤프트 100 제외는 측정값이 +100인 주파수 채널의 X/Y/측정값을 함께 제외하는 보수적 비교입니다. 원시 X/Y에는 100을 넘는 정상 값도 있어 단순 100 이상 잘라내기를 하지 않습니다. 최대값 0행은 판정 불명으로 제외합니다. C10A 보완 기준과 기존 모델은 형식·품번이 달라 그대로 적용하지 않았습니다. 거리 4종은 기존과 같은 방법 계열이지만 마스터가 적어 기존의 95% 임계값 판정은 만들지 못한 경우가 있으며 참고 거리로 제공합니다.'
+    disclaimer='크랙은 '+str(crack_day_start_hour)+'시를 검사일 경계로 사용하며 경계 이후 첫 검사 건을 MASTER 후보로 가정합니다. 경계 이전 새벽 측정은 전일에 속하고 전일 말미 데이터만 있으면 MASTER를 지정하지 않습니다. 샤프트는 검사번호에 NG마스터로 명시된 행을 우선 사용합니다. 일반 NG의 진성·가성 라벨은 없습니다. RF·XGBoost 점수는 MASTER 대 설비 OK의 유사성 점수이며 실제 불량 확률이나 진성·가성 정확도가 아닙니다. 학습은 마지막 날짜 이전 자료만 사용했습니다. 시험 MASTER가 적고 동일 기준시료의 반복 측정일 수 있어 일반화 성능을 입증하지 못합니다. 32767 반복값은 포화·상한 의심값으로 보고 별도의 보수적 비교에서 해당 채널도 제외합니다. 확정된 장비 사양은 아닙니다. 샤프트 100 제외는 측정값이 +100인 주파수 채널의 X/Y/측정값을 함께 제외하는 보수적 비교입니다. 원시 X/Y에는 100을 넘는 정상 값도 있어 단순 100 이상 잘라내기를 하지 않습니다. 최대값 0행은 판정 불명으로 제외합니다. C10A 보완 기준과 기존 모델은 형식·품번이 달라 그대로 적용하지 않았습니다. 거리 4종은 기존과 같은 방법 계열이지만 마스터가 적어 기존의 95% 임계값 판정은 만들지 못한 경우가 있으며 참고 거리로 제공합니다.'
     body='<html lang="ko"><meta charset="utf-8"><title>10월 26일 신규 자료 검증</title><style>body{font:16px/1.8 sans-serif;margin:30px;color:#18283c}table{border-collapse:collapse;font-size:13px}th,td{border:1px solid #ccd4dd;padding:7px}img{max-width:100%}.note{background:#fff2d6;padding:16px}</style><h1>신규 크랙·샤프트 자료 검증</h1><p class="note">'+disclaimer+'</p>'
     for name in ('01_데이터수량','02_MASTER가정_확인표','04_ML_마지막날짜시험'):
         body+='<h2>'+html.escape(name)+'</h2>'+tables[name].to_html(index=False)
@@ -183,7 +203,7 @@ def run_delivery(input_folder,output_root,pca_only=False,on_progress=None):
     for name in figures:body+='<h2>'+html.escape(name)+'</h2><img src="'+html.escape(name)+'.png">'
     (folder/'검증보고서.html').write_text(body,encoding='utf-8')
     (folder/'원본구조와해시.json').write_text(json.dumps(lineage,ensure_ascii=False,indent=2),encoding='utf-8')
-    (folder/'분석기준.json').write_text(json.dumps({'limits':disclaimer,'notes':notes,'source_code_sha256':__import__('hashlib').sha256(Path(__file__).read_bytes()).hexdigest(),'seed':42},ensure_ascii=False,indent=2),encoding='utf-8')
+    (folder/'분석기준.json').write_text(json.dumps({'crack_day_start_hour':crack_day_start_hour,'limits':disclaimer,'notes':notes,'source_code_sha256':__import__('hashlib').sha256(Path(__file__).read_bytes()).hexdigest(),'seed':42},ensure_ascii=False,indent=2),encoding='utf-8')
     shutil.copyfile(__file__,folder/'재현코드.py')
     archive=Path(shutil.make_archive(str(folder),'zip',root_dir=folder))
-    return {'folder':folder,'zip':archive,'tables':tables,'figures':figures,'notes':notes}
+    return {'folder':folder,'zip':archive,'tables':tables,'figures':figures,'notes':notes,'sample_index':sample_index}

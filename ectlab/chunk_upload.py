@@ -11,15 +11,16 @@ class ChunkUpload(w.VBox):
     disabled = Bool(False)
     error = Unicode('')
 
-    def __init__(self, folder, on_complete, label='Excel 선택', **kwargs):
+    def __init__(self, folder, on_complete, label='Excel 선택', extensions=('.xlsx',), **kwargs):
         self.folder=Path(folder);self.folder.mkdir(parents=True,exist_ok=True)
+        self.extensions=extensions
         self.completed=on_complete
         self.identity='ect-upload-'+uuid.uuid4().hex
         self.events=w.Text(layout=w.Layout(display='none'))
         self.events.add_class(self.identity+'-events')
         self.events.observe(self.receive,names='value')
         import html
-        native=w.HTML('<div id="'+self.identity+'"><button type="button" style="padding:9px 16px;background:#edf1f4;color:#19374c;border:1px solid #c4ced8;border-radius:5px;cursor:pointer;font:inherit">'+html.escape(label)+'</button><input type="file" accept=".xlsx" hidden><div class="upload-status" style="font-size:13px;margin:8px 0;overflow-wrap:anywhere;color:#38566d"></div><progress max="100" value="0" hidden style="width:95%"></progress></div>')
+        native=w.HTML('<div id="'+self.identity+'"><button type="button" style="padding:9px 16px;background:#edf1f4;color:#19374c;border:1px solid #c4ced8;border-radius:5px;cursor:pointer;font:inherit">'+html.escape(label)+'</button><input type="file" accept="'+','.join(extensions)+'" hidden><div class="upload-status" style="font-size:13px;margin:8px 0;overflow-wrap:anywhere;color:#38566d"></div><progress max="100" value="0" hidden style="width:95%"></progress></div>')
         super().__init__(children=[native,self.events],**kwargs)
 
     @observe('disabled')
@@ -39,7 +40,7 @@ class ChunkUpload(w.VBox):
             if action=='finish':
                 if part.stat().st_size>100*1024*1024:raise ValueError('100MB 이하의 파일을 사용해 주세요.')
                 from ectlab.delivery_ui import save_upload
-                path=save_upload(self.folder,message['name'],part.read_bytes())
+                path=save_upload(self.folder,message['name'],part.read_bytes(),extensions=self.extensions)
                 part.unlink()
                 self.completed(path)
             elif part.is_file():part.unlink()
@@ -67,7 +68,7 @@ class ChunkUpload(w.VBox):
             button.onclick=()=>{if(!eventInput.disabled)input.click();};
             input.onchange=async()=>{
               const file=input.files[0];if(!file)return;
-              if(!file.name.toLowerCase().endsWith('.xlsx')||file.size>100*1024*1024){status.textContent='100MB 이하의 .xlsx 파일을 선택해 주세요.';input.value='';return;}
+              if(!input.accept.split(',').some(ext=>file.name.toLowerCase().endsWith(ext))||file.size>100*1024*1024){status.textContent='100MB 이하의 '+input.accept+' 파일을 선택해 주세요.';input.value='';return;}
               const part='upload_'+crypto.randomUUID().replaceAll('-','')+'.part';
               uploading=true;button.disabled=true;progress.hidden=false;progress.value=0;
               notify({action:'begin'});

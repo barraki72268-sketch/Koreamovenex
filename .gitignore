@@ -32,3 +32,6 @@ notebooks/새Excel_실행코드/
 notebooks/20261026_새자료_원본/
 !data/demo/excel/사용법_예제_크랙.xlsx
 !data/demo/excel/사용법_예제_샤프트.xlsx
+
+notebooks/기존CSV_업로드/
+notebooks/통합실행_*/

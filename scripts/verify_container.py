@@ -141,3 +141,17 @@ for offset in range(0,len(data),step):
     with urllib.request.urlopen(request,timeout=30) as response:assert response.status in (200,201)
 assert hashlib.sha256((root/target).read_bytes()).digest()==hashlib.sha256(data).digest()
 print('PASS: multi-part authenticated HTTP upload, byte-for-byte workbook preservation')
+
+# The unified entry must start in the same mounted directory as the older notebooks.
+ninth=nbformat.read(root/'notebooks/09_통합테스트_샘플별결과.ipynb',as_version=4)
+ninth.cells.append(nbformat.v4.new_code_cell('''
+assert len(통합화면['tabs'].children)==2
+assert 통합화면['new']['day_start'].value==6
+assert not 통합화면['new']['mode'].value
+assert 통합화면['new']['run'].disabled
+assert 통합화면['legacy']['pick'].options
+통합화면['tabs'].selected_index=1
+'''))
+NotebookClient(ninth,timeout=120,kernel_name='movenex-ect',resources={'metadata':{'path':str(root/'notebooks')}}).execute()
+assert any('application/vnd.jupyter.widget-view+json' in o.get('data',{}) for c in ninth.cells for o in c.get('outputs',[]))
+print('PASS: notebook 09 unified tabs, legacy CSV selection, default 6am boundary, preserved old entry points')

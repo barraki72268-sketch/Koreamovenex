@@ -12,30 +12,29 @@ from ectlab.delivery_excel import convert_workbook
 from ectlab.delivery import run_delivery
 
 
-def save_upload(folder, name, content):
+def save_upload(folder, name, content,extensions=('.xlsx',)):
     """Keep originals, validate names and reject oversized/invalid workbooks."""
-    if Path(name).name != name or '\\' in name or not name.lower().endswith('.xlsx'):
-        raise ValueError('.xlsx 형식의 검사 Excel 파일을 선택해 주세요.')
+    if Path(name).name != name or '\\' in name or not name.lower().endswith(tuple(extensions)):
+        raise ValueError('허용 형식('+', '.join(extensions)+')의 파일을 선택해 주세요.')
     data = bytes(content)
     if len(data) > 100 * 1024 * 1024:
         raise ValueError('100MB 이하의 파일을 사용해 주세요.')
-    try:
-        with ZipFile(io.BytesIO(data)) as book:
-            if 'xl/workbook.xml' not in book.namelist():
-                raise ValueError('Excel 파일 내용을 확인해 주세요.')
-            if sum(i.file_size for i in book.infolist()) > 1024**3:
-                raise ValueError('압축 해제 후 크기가 너무 큽니다. 담당자에게 확인해 주세요.')
-    except Exception as exc:
-        raise ValueError('읽을 수 있는 .xlsx 검사 파일인지 확인해 주세요.') from exc
+    if name.lower().endswith('.xlsx'):
+        try:
+            with ZipFile(io.BytesIO(data)) as book:
+                if 'xl/workbook.xml' not in book.namelist():raise ValueError('Excel 파일 내용을 확인해 주세요.')
+                if sum(i.file_size for i in book.infolist()) > 1024**3:raise ValueError('압축 해제 후 파일이 너무 큽니다.')
+        except Exception as exc:raise ValueError('읽을 수 있는 .xlsx 검사 파일인지 확인해 주세요.') from exc
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
-    target = folder / (Path(name).stem + '_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f') + '_' + uuid.uuid4().hex[:8] + '.xlsx')
+    suffix='.csv.gz' if name.lower().endswith('.csv.gz') else Path(name).suffix
+    target = folder / (name[:-len(suffix)] + '_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f') + '_' + uuid.uuid4().hex[:8] + suffix)
     with target.open('xb') as stream:
         stream.write(data)
     return target
 
 
-def analyze_files(files, root, with_ml=False, on_progress=None):
+def analyze_files(files, root, with_ml=False, on_progress=None,crack_day_start_hour=6):
     """Each run converts only the selected files into its own private folder."""
     files = {kind: Path(path) for kind, path in files.items() if path}
     if not files:
@@ -70,7 +69,7 @@ def analyze_files(files, root, with_ml=False, on_progress=None):
                 name=kind+suffix
                 shutil.copyfile(inputs/name,cache/name);hashes[name]=file_hash(cache/name)
             manifest.write_text(json.dumps({'source_sha256':source_hash,'converter_sha256':converter_hash,'files':hashes},ensure_ascii=False,indent=2),encoding='utf-8')
-    result = run_delivery(inputs, run, pca_only=not with_ml,on_progress=on_progress)
+    result = run_delivery(inputs, run, pca_only=not with_ml,on_progress=on_progress,crack_day_start_hour=crack_day_start_hour)
     # Include converted CSVs and original-file hashes so the same run can be reproduced.
     import shutil
     shutil.copytree(inputs, result['folder'] / '변환CSV')
@@ -105,12 +104,14 @@ def show_delivery_app(root):
     status = w.HTML('<p>준비 중: 분석할 Excel 파일을 선택해 주세요.</p>')
     start = w.Button(description='② 분석 시작', button_style='primary', icon='play',
                      disabled=True, layout=w.Layout(width='220px', height='44px'))
+    day_start=w.BoundedIntText(value=6,min=0,max=23,description='크랙 검사일 시작:',style={'description_width':'130px'})
     ml = w.Checkbox(value=False, description='RF·XGBoost 모델 비교도 함께 실행 (시간이 더 걸립니다)',
                     indent=False, layout=width)
     busy = w.IntProgress(value=0, min=0, max=3, description='진행:', layout=width)
     resultbox = w.Output()
     graphs = w.Output()
     details = w.Output()
+    samples = w.Output()
     choice = w.Dropdown(options=[], description='볼 그래프:', layout=width,
                         style={'description_width': '85px'})
     download = w.HTML()
@@ -134,7 +135,7 @@ def show_delivery_app(root):
             state['result'] = None
             choice.options = []
             download.value = ''
-            for output in (resultbox, graphs, details):
+            for output in (resultbox, graphs, details, samples):
                 output.clear_output()
         state['files'] = {kind: Path(box.value) for kind, box in selectors.items() if box.value}
         start.disabled = not bool(state['files']) or any(u.busy for u in uploaders.values())
@@ -176,13 +177,13 @@ def show_delivery_app(root):
 
     def execute(_):
         start.disabled = True
-        controls = list(uploaders.values()) + list(selectors.values()) + [ml]
+        controls = list(uploaders.values()) + list(selectors.values()) + [ml,day_start]
         for control in controls:
             control.disabled = True
         download.value = ''
         choice.options = []
         state['result'] = None
-        for output in (resultbox, graphs, details, log):
+        for output in (resultbox, graphs, details, samples, log):
             output.clear_output()
         busy.value = 1
         busy.bar_style = 'info'
@@ -192,7 +193,7 @@ def show_delivery_app(root):
                 if message.startswith('PCA'):busy.value=2
                 status.value='<p style="background:#eaf3fc;padding:12px">'+html.escape(message)+'<br>계산이 끝나면 결과가 아래에 나타납니다.</p>'
             with log:
-                result = analyze_files(state['files'], root, ml.value, on_progress=progress)
+                result = analyze_files(state['files'], root, ml.value, on_progress=progress,crack_day_start_hour=day_start.value)
             state['result'] = result
             busy.value = 2
             with resultbox:
@@ -205,8 +206,17 @@ def show_delivery_app(root):
             if pcas:
                 choice.value = pcas[0]
             show_graph()
+            def refresh_download():
+                import shutil
+                result['zip']=Path(shutil.make_archive(str(result['folder']),'zip',root_dir=result['folder']))
+                link=download_href(result['zip'],root)
+                download.value='<h3>④ 결과 저장</h3><a href="'+html.escape(link,quote=True)+'&v='+datetime.now().strftime('%H%M%S')+'" download>추가 그림 포함 결과 ZIP 다운로드 ↓</a>'
+            result['refresh_download']=refresh_download
+            with samples:
+                from ectlab.sample_browser import show_sample_browser
+                show_sample_browser(result)
             with details:
-                display(HTML('<h4>MASTER와 제외값 확인</h4><p>크랙은 날짜·위치별 첫 행을 MASTER로 가정합니다. 샤프트는 검사번호의 NG마스터 표시를 우선합니다. 최대값 0은 판정 불명으로 제외합니다.</p>'))
+                display(HTML('<h4>MASTER와 제외값 확인</h4><p>크랙은 화면에서 지정한 검사일 경계 이후 첫 행을 MASTER 후보로 봅니다. 경계 이전 새벽 측정은 전일에 속합니다. 샤프트는 검사번호의 NG마스터 표시를 우선합니다. 최대값 0은 판정 불명으로 제외합니다.</p>'))
                 display(result['tables']['02_MASTER가정_확인표'])
                 if ml.value:
                     display(HTML('<h4>RF·XGBoost 비교</h4><p>이전 날짜로 학습하고 마지막 날짜를 확인합니다. 점수는 실제 불량 확률이 아닙니다. 학습할 날짜·MASTER가 부족한 구간은 생략합니다.</p>'))
@@ -234,10 +244,10 @@ def show_delivery_app(root):
     detailbox.selected_index = None
     app = w.VBox([heading, w.HBox(cards, layout=w.Layout(width="100%", flex_flow="row wrap")),
                   w.HTML('<h3>② 분석 방법</h3><p>처음에는 체크하지 않고 PCA부터 확인하세요. 샤프트 100값 제외 비교는 자동으로 포함됩니다.</p>'),
-                  ml, start, busy, status, resultbox, choice, graphs, download, detailbox,
+                  day_start, w.HTML('<p>기본 오전 6시. 6시 이전은 전일 검사일에 속합니다. 첫 행이 OK인 경우 확정 진성 라벨로 학습하지 않습니다.</p>'),ml, start, busy, status, resultbox, choice, graphs, samples, download, detailbox,
                   w.HTML('<p style="color:#6b7280">PCA는 분포를 보는 그림입니다. 일반 NG의 진성·가성 정답이 없어 자동 확정 판정으로 사용하지 않습니다.</p>'), logbox], layout=w.Layout(width='100%', max_width='1150px'))
     display(app)
     for kind, uploader in uploaders.items():
         display(uploader.javascript('notebooks/새Excel_업로드/' + kind))
     return dict(state=state, uploaders=uploaders, selectors=selectors, run=start, mode=ml,
-                choice=choice, status=status, app=app)
+                choice=choice, status=status, day_start=day_start, app=app)

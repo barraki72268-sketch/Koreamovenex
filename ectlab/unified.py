@@ -77,6 +77,7 @@ def show_legacy_app(root):
         if new:pick.value=str(new)
 
     upload=ChunkUpload(uploads,lambda p:refresh(p),label='기존 CSV 선택',extensions=('.csv','.csv.gz'))
+    refresh()
     refresh_button=w.Button(description='파일 목록 새로고침',icon='refresh');refresh_button.on_click(lambda _:refresh())
     def execute(_):
         if not pick.value:status.value='<p>서버에 있는 CSV를 고르거나 PC에서 올려 주세요.</p>';return

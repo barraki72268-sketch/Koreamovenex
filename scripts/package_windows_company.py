@@ -23,6 +23,14 @@ def build(root, destination):
         data=(root/name).read_bytes()
         if name.endswith('.cmd'):
             data=data.replace(b'\r\n',b'\n').replace(b'\n',b'\r\n')
+        if name=='ectlab/workflow_ui.py':
+            data=data.decode('utf-8').replace('서버 목록','파일 목록').encode('utf-8')
+        if name.endswith('.ipynb'):
+            notebook=json.loads(data.decode('utf-8'))
+            for cell in notebook['cells']:
+                if cell['cell_type']=='markdown':
+                    cell['source']=[line.replace('연구 비교는 10번에 보존했습니다.','') for line in cell['source']]
+            data=json.dumps(notebook,ensure_ascii=False,indent=1).encode('utf-8')
         entries[name]=data
     guide=(root/'docs/회사PC_간편설치.md').read_text(encoding='utf-8')
     guide=guide.replace('실제 데이터 포함 ZIP은 담당자에게 비공개로 받습니다. GitHub의 ZIP에는 합성 연습 자료만 있습니다.',

@@ -39,14 +39,31 @@ function Find-Python {
     }
     $launcher = Get-Command py.exe -ErrorAction SilentlyContinue
     if ($launcher) {
-        $found = & $launcher.Source -3.12 -c 'import sys; print(sys.executable)' 2>$null
-        if ($LASTEXITCODE -eq 0 -and (Test-Python ($found | Select-Object -Last 1))) { return ($found | Select-Object -Last 1) }
+        # Windows PowerShell 5 treats a launcher's stderr as a terminating error
+        # under Stop, even when Python is simply not installed yet.
+        $previousPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $found = & $launcher.Source -3.12 -c 'import sys; print(sys.executable)' 2>$null
+            $launcherExit = $LASTEXITCODE
+        } catch {
+            $found = @()
+            $launcherExit = -1
+        } finally {
+            $ErrorActionPreference = $previousPreference
+        }
+        if ($launcherExit -eq 0 -and (Test-Python ($found | Select-Object -Last 1))) { return ($found | Select-Object -Last 1) }
     }
     foreach ($key in @('HKCU:\Software\Python\PythonCore\3.12\InstallPath', 'HKLM:\Software\Python\PythonCore\3.12\InstallPath')) {
-        if (Test-Path $key) {
-            $candidate = Join-Path (Get-Item $key).GetValue('') 'python.exe'
-            if (Test-Python $candidate) { return $candidate }
-        }
+        try {
+            if (Test-Path $key) {
+                $installPath = (Get-Item $key -ErrorAction Stop).GetValue('')
+                if ($installPath) {
+                    $candidate = Join-Path $installPath 'python.exe'
+                    if (Test-Python $candidate) { return $candidate }
+                }
+            }
+        } catch { continue }
     }
     return ''
 }

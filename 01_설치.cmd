@@ -12,7 +12,7 @@ popd
 pause
 exit /b %INSTALL_RESULT%
 :not_extracted
-echo ZIP 안에서 바로 실행할 수 없습니다. ZIP 전체를 C:\Movenex에 압축 해제한 뒤 실행하세요.
+echo ZIP 안에서 바로 실행할 수 없습니다. ZIP 전체를 원하는 폴더에 압축 해제한 뒤 실행하세요.
 echo 01_설치.cmd와 scripts 폴더가 같은 폴더 안에 있어야 합니다.
 popd
 pause

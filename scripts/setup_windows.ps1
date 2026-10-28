@@ -4,14 +4,15 @@
     [switch]$CheckOnly,
     [switch]$DownloadOnly,
     [string]$PythonExe = '',
-    [string]$EnvironmentDirectory = '.venv'
+    [string]$EnvironmentDirectory = ''
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location -LiteralPath $root
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$cache = Join-Path $root '.installer-cache'
+$runtimeBase = Join-Path $env:USERPROFILE '.mvx'
+$cache = Join-Path $runtimeBase 'installers'
 $logdir = Join-Path $root 'logs'
 New-Item -ItemType Directory -Force -Path $logdir | Out-Null
 $log = Join-Path $logdir ('install-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.txt')
@@ -103,13 +104,23 @@ function Test-XGBoost([string]$Interpreter) {
 try {
     Start-Transcript -Path $log | Out-Null
     if (-not [Environment]::Is64BitOperatingSystem -or $env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { throw '현재 설치 구성은 Windows 10/11 x64 PC용입니다.' }
-    if ($root.Length -gt 45) { throw '설치 폴더 경로가 너무 깁니다. ZIP을 C:\Movenex 같은 짧은 경로에 풀고 다시 실행하세요. Windows 파일 경로 제한으로 Jupyter 설치가 실패할 수 있습니다.' }
     if (-not (Test-Path -LiteralPath (Join-Path $root 'requirements.txt'))) { throw 'ZIP 전체를 압축 해제한 뒤 실행하세요.' }
-    $environment = [IO.Path]::GetFullPath((Join-Path $root $EnvironmentDirectory))
-    if (-not $environment.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) { throw '실행 환경은 프로그램 폴더 안에 만들어야 합니다.' }
+    $requirementsHash = (Get-FileHash -LiteralPath (Join-Path $root 'requirements.txt') -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($EnvironmentDirectory) {
+        if ([IO.Path]::IsPathRooted($EnvironmentDirectory)) { $environment = [IO.Path]::GetFullPath($EnvironmentDirectory) }
+        else { $environment = [IO.Path]::GetFullPath((Join-Path $root $EnvironmentDirectory)) }
+    } else {
+        if (-not $CheckOnly) {
+            New-Item -ItemType Directory -Force -Path $runtimeBase | Out-Null
+            # Use an existing Windows short alias when one is available.
+            try { $runtimeBase = (New-Object -ComObject Scripting.FileSystemObject).GetFolder($runtimeBase).ShortPath } catch {}
+        }
+        $environment = Join-Path $runtimeBase ('e' + $requirementsHash.Substring(0,8))
+    }
     $python = Find-Python
     $code = Find-Code
     Write-Host "프로그램 폴더: $root"
+    Write-Host "실행 환경 (자동 관리): $environment"
     Write-Host "Python 3.12: $(if($python){$python}else{'없음 - 공식 설치 파일로 준비합니다'})"
     Write-Host "VS Code: $(if($code){$code}else{'아직 설치되지 않음'})"
     if ($CheckOnly) { Write-Host '점검 완료. 다운로드·설치·환경 변경은 하지 않았습니다.'; return }
@@ -162,6 +173,19 @@ try {
         if (-not (Test-XGBoost $envPython)) { throw 'XGBoost를 불러오지 못했습니다. 설치 로그를 전달해 주세요. Windows 재시작이 필요할 수도 있습니다.' }
     }
     Invoke-Checked $envPython @('-c',"import jupyterlab,ipywidgets,numpy,pandas,sklearn,xgboost,matplotlib,lxml,tkinter; from ectlab.workflow_ui import show_workflow_app; print('PASS: Jupyter and analysis imports')")
+    $settingsFolder = Join-Path $root '.jupyter'
+    New-Item -ItemType Directory -Force -Path $settingsFolder | Out-Null
+    $settings = @{schema=1; python_exe=$envPython; environment=$environment; requirements_sha256=$requirementsHash}
+    $settings | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $settingsFolder 'windows-runtime.json') -Encoding UTF8
+    $editorFolder=Join-Path $root '.vscode'
+    $editorSettings=Join-Path $editorFolder 'settings.json'
+    try {
+        New-Item -ItemType Directory -Force -Path $editorFolder | Out-Null
+        if (Test-Path -LiteralPath $editorSettings) { $editor=Get-Content -LiteralPath $editorSettings -Raw -Encoding UTF8 | ConvertFrom-Json }
+        else { $editor=New-Object PSObject }
+        $editor | Add-Member -NotePropertyName 'python.defaultInterpreterPath' -NotePropertyValue $envPython -Force
+        $editor | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $editorSettings -Encoding UTF8
+    } catch { Write-Host 'VS Code에서는 설치 로그에 표시된 Python 실행 환경을 선택하세요.' }
     Write-Host "설치 완료. 02_분석실행.cmd를 더블클릭하세요. 로그: $log" -ForegroundColor Green
 } catch {
     Write-Host ('설치가 끝나지 않았습니다: ' + $_.Exception.Message) -ForegroundColor Red

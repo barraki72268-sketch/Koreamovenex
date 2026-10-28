@@ -27,6 +27,9 @@ notebooks/20261026_사전학습모델결과/
 .DS_Store
 
 .test-tmp/
+.installer-cache/
+.installer-test/
+logs/
 notebooks/새Excel_업로드/
 notebooks/새Excel_실행코드/
 notebooks/20261026_새자료_원본/
@@ -38,3 +41,6 @@ notebooks/통합실행_*/
 notebooks/전체실행_자료.json
 notebooks/크랙_TabICLv2_결과/
 notebooks/학습검사_업로드/
+notebooks/추가데이터_시작.ipynb
+notebooks/추가데이터_시작.tmp
+notebooks/추가데이터실행/

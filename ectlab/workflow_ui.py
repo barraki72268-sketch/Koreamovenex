@@ -58,6 +58,7 @@ def show_workflow_app(root):
     kind.value='NG 전체 (MASTER 포함)'
     files_refresh=w.Button(description='파일 목록 새로고침',icon='refresh')
     sampletable.layout.overflow='auto'
+    for panel in (out1,out2,out3):panel.layout.overflow='auto'
 
     def reset_test():
         state['result']=None;out3.clear_output();testplot.clear_output();sampletable.clear_output();tested.options=[];resultdownload.value='';s3.value=''

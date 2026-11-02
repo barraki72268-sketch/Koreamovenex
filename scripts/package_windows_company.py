@@ -15,7 +15,7 @@ def build(root, destination):
     assert len(manifest['sources'])==4
     entries={}
     names=['00_먼저읽어주세요.txt','01_설치.cmd','02_분석실행.cmd',
-           'requirements.txt','scripts/setup_windows.ps1','scripts/start_windows.ps1',
+           'requirements.txt','requirements-tabicl-windows.txt','scripts/setup_windows.ps1','scripts/start_windows.ps1','scripts/prepare_tabicl_windows.py',
            'scripts/add_data_windows.py','.vscode/extensions.json','.vscode/settings.json',
            'notebooks/09_통합테스트_샘플별결과.ipynb']
     names += [p.relative_to(root).as_posix() for p in (root/'ectlab').rglob('*.py')]
@@ -44,6 +44,7 @@ def build(root, destination):
 폴더 이름은 바꿔도 됩니다. ZIP 전체를 원하는 폴더에 압축 해제하세요.
 
 01_설치.cmd              처음 한 번 설치 (인터넷 필요)
+  TabICLv2가 필요하면 추가 설치 질문에 y를 입력합니다.
 02_분석실행.cmd          포함된 실제 데이터로 분석
 새로운 데이터: 분석 화면 ①의 Excel·CSV 선택 버튼으로 추가해 재분석
 
@@ -62,6 +63,13 @@ def build(root, destination):
   검출값 0~5 / 0~10 / 0~20 / 전체(100 제외) 조회 범위
   Windows 기본 파일 선택 및 전체 경로 입력 지원
   조회 범위는 표시 조건이며 학습·판정 변경이나 모델 고도화가 아닙니다.
+
+TabICLv2 추가 비교
+  ② 모델 목록에서 RF / XGBoost / TabICLv2를 선택합니다.
+  TabICLv2는 공식 사전학습 모델을 사용하며 가중치 추가 학습은 하지 않습니다.
+  기본 CPU 모드는 NG 전체 및 OK 일부를 평가하고, 미평가 OK를 명시합니다.
+  OK 전수 평가도 선택할 수 있지만 매우 오래 걸릴 수 있습니다.
+  PCA는 원측정값의 좌표이며 TabICLv2 내부 특징 공간이 아닙니다.
 '''
     entries['00_먼저읽어주세요.txt']=intro.replace('\n','\r\n').encode('utf-8-sig')
     page='<!doctype html><meta charset="utf-8"><title>회사 실행 통합본 안내</title><style>body{font:18px/1.8 sans-serif;max-width:1000px;margin:40px auto;padding:0 20px}pre{white-space:pre-wrap;font:inherit}h1{color:#17354b}</style><h1>한국무브넥스 회사 실행 통합본</h1><pre>'+html.escape(intro)+'\n'+html.escape(guide)+'</pre>'
@@ -77,7 +85,7 @@ def build(root, destination):
     entries['notebooks/전체실행_자료.json']=json.dumps(manifest,ensure_ascii=False,indent=2).encode('utf-8')
     try:commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root).decode().strip()
     except (OSError,subprocess.CalledProcessError):commit='local'
-    entries['배포정보.json']=json.dumps({'version':'2026-11-02 UI improvement','source_commit':commit,'actual_data_files':hashes,'demo_data_included':False,'models':'Existing RandomForest/XGBoost; no advanced-model research'},ensure_ascii=False,indent=2).encode('utf-8')
+    entries['배포정보.json']=json.dumps({'version':'2026-11-02 UI and optional TabICLv2','source_commit':commit,'actual_data_files':hashes,'demo_data_included':False,'models':'RandomForest/XGBoost + optional official pretrained TabICLv2; no fine-tuning'},ensure_ascii=False,indent=2).encode('utf-8')
     destination.parent.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(destination,'w',compression=zipfile.ZIP_DEFLATED) as archive:
         for name,data in entries.items():archive.writestr('Movenex/'+name,data)

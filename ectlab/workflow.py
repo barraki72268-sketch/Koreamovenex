@@ -168,9 +168,13 @@ def prepare_training(path,profile,root,drop_saturation=None,train_end='',day_sta
     return {'profile':profile,'source':str(path),'source_hash':digest,'groups':groups,'summary':pd.DataFrame(summary),'drop_saturation':bool(drop_saturation),'train_end':train_end,'day_start':day_start}
 
 
-def fit_prepared(prepared,root,model_name='RandomForest',low=.1,high=.9):
+def fit_prepared(prepared,root,model_name='RandomForest',low=.1,high=.9,tabicl_all_ok=False):
     if not 0<=low<high<=1:raise ValueError('낮음 기준 < 높음 기준, 0~1 범위를 사용하세요.')
     if file_hash(prepared['source'])!=prepared['source_hash']:raise ValueError('학습 파일이 변경됐습니다. ①번부터 다시 실행하세요.')
+    tabicl=model_name=='TabICLv2'
+    if tabicl:
+        from ectlab.tabicl_model import require_available,TabICLContextClassifier,CONTEXT_OK_LIMIT
+        checkpoint=require_available(root)
     folder=new_folder(root,'학습모델');models={};summary=[]
     for key,g in prepared['groups'].items():
         r=g['rows'];valid=g['valid'];mask=g['mask'];base={'라인':key[0],'품번':key[1],'위치':key[2]}
@@ -180,11 +184,12 @@ def fit_prepared(prepared,root,model_name='RandomForest',low=.1,high=.9):
         negative=valid&~r.master.to_numpy()&(r.equipment_label.eq('OK')|r.label.isin(['normal','false'])).to_numpy()&~true
         if mask.sum()<2 or not positive.any() or not negative.any():
             summary.append(dict(base,상태='학습 불가',학습기준='기업 진성/MASTER와 OK·가성 두 종류 및 입력 2개 이상 필요',양성=int(positive.sum()),음성=int(negative.sum())));continue
-        neg=evenly_sample(np.flatnonzero(negative),2000);indices=np.r_[np.flatnonzero(positive),neg]
+        neg=evenly_sample(np.flatnonzero(negative),CONTEXT_OK_LIMIT if tabicl else 2000);indices=np.r_[np.flatnonzero(positive),neg]
         y=positive[indices].astype(int);A=g['X'][:,mask]
         if not np.any(np.ptp(A[valid],axis=0)>0):
             summary.append(dict(base,상태='학습 불가',학습기준='유효 측정값에 변화가 없어 PCA/분류 기준 생성 불가',양성=int(positive.sum()),음성=len(neg)));continue
-        estimator=classifier(model_name,Settings(c10a_retrospective_guard=False),y);estimator.fit(A[indices],y)
+        estimator=TabICLContextClassifier(checkpoint) if tabicl else classifier(model_name,Settings(c10a_retrospective_guard=False),y)
+        estimator.fit(A[indices],y)
         scaler=RobustScaler().fit(A[valid]);scaled=scaler.transform(A[valid])
         pca=PCA(n_components=2,random_state=42).fit(scaled)
         plot_ids=evenly_sample(np.flatnonzero(valid),2000)
@@ -205,6 +210,11 @@ def fit_prepared(prepared,root,model_name='RandomForest',low=.1,high=.9):
     bundle={'schema':1,'profile':prepared['profile'],'source_hash':prepared['source_hash'],'source_file':Path(prepared['source']).name,
             'model_name':model_name,'low':low,'high':high,'day_start':prepared['day_start'],'drop_saturation':prepared['drop_saturation'],
             'train_end':prepared['train_end'],'models':models,'summary':pd.DataFrame(summary),'folder':folder}
+    if tabicl:
+        from ectlab.tabicl_model import VERSION,SHA256,CODE_COMMIT,QUERY_OK_LIMIT,QUERY_BATCH
+        bundle['tabicl']={'checkpoint':VERSION,'sha256':SHA256,'code_commit':CODE_COMMIT,'device':'cpu','n_estimators':1,
+                          'context_OK_limit':CONTEXT_OK_LIMIT,'query_OK_limit':QUERY_OK_LIMIT,'query_batch':QUERY_BATCH,
+                          'all_OK_scored':bool(tabicl_all_ok),'fine_tuning':False,'PCA_space':'original measurements, not hidden features'}
     joblib.dump(bundle,folder/'학습모델.joblib')
     bundle['summary'].to_csv(folder/'학습요약.csv',index=False,encoding='utf-8-sig')
     (folder/'학습기준.json').write_text(json.dumps({k:v for k,v in bundle.items() if k not in ('models','summary','folder')},ensure_ascii=False,indent=2),encoding='utf-8')
@@ -216,9 +226,10 @@ def fit_prepared(prepared,root,model_name='RandomForest',low=.1,high=.9):
     return bundle
 
 
-def predict_groups(bundle,groups):
+def predict_groups(bundle,groups,on_progress=None):
     output=[]
-    for key,g in groups.items():
+    for number,(key,g) in enumerate(groups.items(),1):
+        if on_progress:on_progress(f'{number}/{len(groups)} · {key[0]} / {key[1]} / 위치 {key[2]} · {bundle["model_name"]} 판정 중')
         r=g['rows'].copy();r['점수']=np.nan;r['PC1']=np.nan;r['PC2']=np.nan;r['예측']='입력 확인 필요';r['설명']='학습하지 않은 품번·위치';r['학습기준']='미등록'
         r['학습파일중복']=False;r['모델학습행중복']=False
         m=bundle['models'].get(key)
@@ -239,10 +250,20 @@ def predict_groups(bundle,groups):
             for j,f in enumerate(m['descriptors']):
                 v=A[:,j];saturation|=np.isclose(np.abs(v),32767,rtol=0,atol=1e-9)
                 if f['axis'] in ('측정값','vector'):saturation|=np.isclose(v,100,rtol=0,atol=1e-9)
-        ids=np.flatnonzero(valid)
+        project_ids=np.flatnonzero(valid)
+        if len(project_ids):r.loc[project_ids,['PC1','PC2']]=m['pca'].transform(m['scaler'].transform(A[project_ids]))
+        ids=project_ids
+        if bundle['model_name']=='TabICLv2' and not bundle.get('tabicl',{}).get('all_OK_scored',False):
+            from ectlab.tabicl_model import QUERY_OK_LIMIT
+            ok=evenly_sample(np.flatnonzero(valid&r.equipment_label.eq('OK').to_numpy()),QUERY_OK_LIMIT)
+            ids=np.unique(np.r_[np.flatnonzero(valid&r.equipment_label.ne('OK').to_numpy()),ok])
+            omitted=valid&r.equipment_label.eq('OK').to_numpy()&~np.isin(np.arange(len(r)),ids)
+            r.loc[omitted,'예측']='AI 미평가 · 설비 합격'
+            r.loc[omitted,'설명']='TabICLv2 CPU 비교: OK 표본 외 · AI 미평가 (설비 합격 표시만 유지)'
         if len(ids):
-            p=m['model'].predict_proba(A[ids])[:,list(m['model'].classes_).index(1)]
-            r.loc[ids,'점수']=p;r.loc[ids,['PC1','PC2']]=m['pca'].transform(m['scaler'].transform(A[ids]))
+            proba=m['model'].predict_proba(A[ids],on_progress=on_progress) if bundle['model_name']=='TabICLv2' else m['model'].predict_proba(A[ids])
+            p=proba[:,list(m['model'].classes_).index(1)]
+            r.loc[ids,'점수']=p
             equipment=r.iloc[ids].equipment_label.to_numpy();hi=p>=bundle['high'];lo=p<=bundle['low']
             prediction=np.where(hi,np.where(equipment=='OK','불량 의심 · FN 후보','진성불량 의심'),np.where(lo,np.where(equipment=='NG','가성불량 후보','정상 유사'),'판정 보류'))
             prediction[saturation[ids]]='판정 보류'
@@ -256,14 +277,15 @@ def predict_groups(bundle,groups):
     result=pd.concat(output,ignore_index=True).sort_values('order',kind='stable').reset_index(drop=True)
     result['검증구분']=np.where(result.학습파일중복,'학습 파일과 중복 · 독립 검증 아님','신규 입력 · 정답 확인 별도 필요')
     result['판정범위']='진성/가성은 후보 예측이며 실제 FN 확정은 현장 검사·정답 연결 필요'
+    result['AI평가여부']=result['점수'].notna()
     from ectlab.company_results import classify_rows
     return classify_rows(result)
 
 
-def predict_file(bundle,path,root):
+def predict_file(bundle,path,root,on_progress=None):
     # No fit call: masks, scaler, PCA, classifier, thresholds and model version stay frozen.
-    groups=read_groups(path,bundle['profile'],root,training=False,day_start=bundle['day_start'])
-    rows=predict_groups(bundle,groups)
+    groups=read_groups(path,bundle['profile'],root,training=False,day_start=bundle['day_start'],on_progress=on_progress)
+    rows=predict_groups(bundle,groups,on_progress=on_progress)
     folder=Path(bundle['folder'])/'검사결과'/datetime.now().strftime('%Y%m%d_%H%M%S_%f');folder.mkdir(parents=True)
     rows.to_csv(folder/'샘플별_예측결과.csv',index=False,encoding='utf-8-sig')
     summary=rows.groupby(['line','product','position','예측'],dropna=False).size().rename('수량').reset_index()
@@ -275,6 +297,8 @@ def predict_file(bundle,path,root):
     ng.to_csv(folder/'NG_판정요약.csv',index=False,encoding='utf-8-sig')
     detail.to_csv(folder/'상세현황_RAW연결.csv',index=False,encoding='utf-8-sig')
     record={'model_source_hash':bundle['source_hash'],'input_file':Path(path).name,'input_hash':file_hash(path),'refitted':False,'PCA_refitted':False,'rows':len(rows),'raw_ng_rows':original_ng,'ng_reconciled':True,'training_overlap_rows':int(rows.학습파일중복.sum()),'low':bundle['low'],'high':bundle['high'],'model_name':bundle['model_name']}
+    record['AI_scored_rows']=int(rows['AI평가여부'].sum())
+    if 'tabicl' in bundle:record['tabicl']=bundle['tabicl']
     (folder/'검사기록.json').write_text(json.dumps(record,ensure_ascii=False,indent=2),encoding='utf-8')
     return {'rows':rows,'summary':summary,'ng_summary':ng,'detail':detail,'folder':folder,'record':record}
 

@@ -1,0 +1,6 @@
+# Install the CPU-only torch wheel separately first. No Git executable required.
+torch==2.14.1
+tabicl @ https://github.com/soda-inria/tabicl/archive/c91f00df184a5097e584cb376f7e699e9f3444c4.zip
+einops==0.8.2
+huggingface-hub==2.2.0
+tokenizers==0.23.3

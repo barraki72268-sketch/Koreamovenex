@@ -1,6 +1,8 @@
 ﻿param(
     [switch]$WithVSCode,
     [switch]$SkipVSCode,
+    [switch]$WithTabICL,
+    [switch]$SkipTabICL,
     [switch]$CheckOnly,
     [switch]$DownloadOnly,
     [string]$PythonExe = '',
@@ -135,6 +137,10 @@ try {
         $choice = Read-Host 'VS Code와 Python/Jupyter 확장도 함께 설치할까요? [Y/n] (Enter: 함께 설치)'
         $WithVSCode = $choice -notmatch '^[nN]$'
     }
+    if (-not $WithTabICL -and -not $SkipTabICL) {
+        $choice=Read-Host '추가 비교 모델 TabICLv2도 설치할까요? (추가 다운로드·CPU 분석 시간 필요) [y/N]'
+        $WithTabICL=$choice -match '^[yY]$'
+    }
     Write-Host '[1/5] Python 준비'
     if (-not $python) {
         $installer = Get-OfficialInstaller 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe' 'python-3.12.10-amd64.exe' 'Python Software Foundation'
@@ -151,6 +157,21 @@ try {
     Write-Host '[3/5] Jupyter와 분석 패키지 설치 (인터넷 필요)'
     Invoke-Checked $envPython @('-m','pip','install','--disable-pip-version-check','-r',(Join-Path $root 'requirements.txt'))
     Invoke-Checked $envPython @('-m','pip','check')
+    $tabiclStatus='not_selected'
+    if ($WithTabICL) {
+        Write-Host 'TabICLv2 선택 설치: 공식 PyTorch CPU 패키지와 공식 모델 파일 준비'
+        try {
+            Invoke-Checked $envPython @('-m','pip','install','--disable-pip-version-check','--index-url','https://download.pytorch.org/whl/cpu','torch==2.14.1')
+            Invoke-Checked $envPython @('-m','pip','install','--disable-pip-version-check','-c',(Join-Path $root 'requirements.txt'),'-r',(Join-Path $root 'requirements-tabicl-windows.txt'))
+            Invoke-Checked $envPython @((Join-Path $root 'scripts/prepare_tabicl_windows.py'))
+            Invoke-Checked $envPython @('-m','pip','check')
+            $tabiclStatus='ready'
+        } catch {
+            $tabiclStatus='failed'
+            Write-Host ('TabICLv2 추가 설치 확인 필요: '+$_.Exception.Message) -ForegroundColor Yellow
+            Write-Host '기본 RF·XGBoost 설치는 계속 진행합니다. TabICLv2가 필요하면 로그를 전달하거나 01번에서 추가 설치를 다시 선택하세요.'
+        }
+    }
     Invoke-Checked $envPython @('-m','ipykernel','install','--sys-prefix','--name','movenex-ect','--display-name','Python (Movenex ECT)')
     foreach ($name in @('data/private','data/processed','results','notebooks/학습검사_업로드')) { New-Item -ItemType Directory -Force -Path (Join-Path $root $name) | Out-Null }
     Write-Host '[4/5] VS Code 준비'
@@ -175,7 +196,7 @@ try {
     Invoke-Checked $envPython @('-c',"import jupyterlab,ipywidgets,numpy,pandas,sklearn,xgboost,matplotlib,lxml,tkinter; from ectlab.workflow_ui import show_workflow_app; print('PASS: Jupyter and analysis imports')")
     $settingsFolder = Join-Path $root '.jupyter'
     New-Item -ItemType Directory -Force -Path $settingsFolder | Out-Null
-    $settings = @{schema=1; python_exe=$envPython; environment=$environment; requirements_sha256=$requirementsHash}
+    $settings = @{schema=1; python_exe=$envPython; environment=$environment; requirements_sha256=$requirementsHash; tabicl=$tabiclStatus}
     $settings | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $settingsFolder 'windows-runtime.json') -Encoding UTF8
     $editorFolder=Join-Path $root '.vscode'
     $editorSettings=Join-Path $editorFolder 'settings.json'

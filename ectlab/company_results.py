@@ -50,7 +50,8 @@ def ng_summary(bundle,rows,limit='full'):
         if model is not None:record['PCA설명비율']=float(model['pca'].explained_variance_ratio_.sum())
         accounted=sum(record[c] for c in ('MASTER','가성불량(추정)','진성불량(추정)','보류','기준자료0(NG)','입력확인(NG)'))
         record.update({'분류합계':accounted,'집계검증':'일치' if accounted==len(ng) else '확인 필요',
-                       '표시범위밖(NG)':int((~view_mask(ng,limit)).sum()),'전체검사행':len(g)})
+                       '표시범위밖(NG)':int((~view_mask(ng,limit)).sum()),'전체검사행':len(g),
+                       'AI미평가OK':int((g.equipment_label.eq('OK')&pd.to_numeric(g.get('점수',pd.Series(np.nan,index=g.index)),errors='coerce').isna()).sum())})
         records.append(record)
     return pd.DataFrame(records)
 
@@ -62,6 +63,7 @@ def detail_table(rows):
              'part_no':'Part_No','가성유사점수(%)':'가성유사점수(%)','진성유사점수(%)':'진성유사점수(%)',
              'PC1':'PC1','PC2':'PC2','source_file':'원본파일','source_sheet':'원본시트','source_row':'원본행',
              '설명':'판정설명','학습기준':'학습기준','검증구분':'검증구분','sample_id':'샘플ID'}
+    columns['AI평가여부']='AI평가여부'
     for name in columns:
         if name not in r:r[name]=''
     return r[list(columns)].rename(columns=columns)

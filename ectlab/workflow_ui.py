@@ -38,7 +38,9 @@ def show_workflow_app(root):
     drop=w.Checkbox(value=False,description='학습 데이터의 100·32767 포화 채널 제외',layout=wide)
     end=w.Text(description='학습 종료일:',placeholder='빈칸이면 선택 파일 전체 / 예: 2026-10-20',style=labelstyle,layout=wide)
     boundary=w.BoundedIntText(value=6,min=0,max=23,description='크랙 검사일 시작:',style=labelstyle)
-    model=w.Dropdown(options=[('Random Forest (기본)','RandomForest'),('XGBoost','XGBoost')],description='학습 모델:',style=labelstyle,layout=wide)
+    model=w.Dropdown(options=[('Random Forest (기본)','RandomForest'),('XGBoost','XGBoost'),('TabICLv2 (선택 설치 · CPU 비교)','TabICLv2')],description='학습 모델:',style=labelstyle,layout=wide)
+    modelnote=w.HTML()
+    tabicl_all_ok=w.Checkbox(value=False,description='TabICLv2로 OK도 전수 평가 (매우 느림)',layout=wide)
     low=w.BoundedFloatText(value=.1,min=0,max=1,step=.05,description='낮음 기준:')
     high=w.BoundedFloatText(value=.9,min=0,max=1,step=.05,description='높음 기준:')
     first=w.Button(description='① 데이터 읽기 · 전처리',button_style='primary',icon='file',layout=w.Layout(width='270px',height='44px'))
@@ -91,13 +93,20 @@ def show_workflow_app(root):
         state['bundle']=None;second.disabled=state['prepared'] is None;third.disabled=True
         out2.clear_output();trainplot.clear_output();learned.options=[];modeldownload.value='';reset_test()
         s2.value='<p>모델·점수 기준이 바뀌었습니다. ②번을 다시 실행하세요.</p>'
-    for control in (model,low,high):control.observe(invalidate_fit,names='value')
+    for control in (model,low,high,tabicl_all_ok):control.observe(invalidate_fit,names='value')
+    def update_modelnote(*_):
+        tabicl_all_ok.layout.display='' if model.value=='TabICLv2' else 'none'
+        modelnote.value=('<p style="background:#fff3dc;padding:12px">TabICLv2: 01번에서 추가 설치가 필요합니다. 공식 사전학습 가중치는 고정하고 기준자료를 등록합니다. CPU 비교에서는 구간별 OK 기준자료 최대 256행, 검사 NG 전체(유효·학습 가능 구간)와 OK 최대 128행을 평가합니다. 나머지 OK는 설비 합격으로만 표시하며 AI 미평가입니다. PCA는 원측정값 공간입니다. RF·XGBoost보다 오래 걸릴 수 있습니다.</p>' if model.value=='TabICLv2' else '')
+        if model.value=='TabICLv2' and tabicl_all_ok.value:
+            modelnote.value=modelnote.value.replace('OK 최대 128행','OK 전수').replace('나머지 OK는 설비 합격으로만 표시하며 AI 미평가입니다.','OK 전수 평가를 선택했습니다. 데이터가 많으면 매우 오래 걸립니다.')
+    model.observe(update_modelnote,names='value');update_modelnote()
+    tabicl_all_ok.observe(update_modelnote,names='value')
     def change_test(*_):
         if not state['busy'] and not state['refreshing']:reset_test()
     test.observe(change_test,names='value');pasted.observe(change_test,names='value')
     def busy(value):
         state['busy']=value
-        for control in (family,train,test,drop,end,boundary,model,low,high,upload_train,upload_test):control.disabled=value
+        for control in (family,train,test,drop,end,boundary,model,low,high,upload_train,upload_test,tabicl_all_ok):control.disabled=value
         first.disabled=value;second.disabled=value or state['prepared'] is None;third.disabled=value or state['bundle'] is None
     def plot_train(*_):
         with trainplot:
@@ -148,9 +157,9 @@ def show_workflow_app(root):
         finally:busy(False)
     def fit(_):
         if state['prepared'] is None:return
-        state['bundle']=None;reset_test();out2.clear_output();busy(True);s2.value='<p>품번·위치별로 모델과 PCA를 학습하고 있습니다.</p>'
+        state['bundle']=None;reset_test();out2.clear_output();busy(True);s2.value='<p>품번·위치별로 모델 기준자료와 PCA를 준비하고 있습니다.</p>'
         try:
-            bundle=fit_prepared(state['prepared'],root,model.value,low.value,high.value);state['bundle']=bundle
+            bundle=fit_prepared(state['prepared'],root,model.value,low.value,high.value,tabicl_all_ok=tabicl_all_ok.value);state['bundle']=bundle
             with out2:display(bundle['summary'])
             learned.options=[(f'{k[0]} / {k[1]} / 위치 {k[2]}',k) for k in bundle['models']]
             if learned.options:learned.value=learned.options[0][1]
@@ -168,7 +177,7 @@ def show_workflow_app(root):
         try:
             path=Path(test.value) if test.value else None
             if pasted.value.strip():path=upload/('벡터배치_'+uuid.uuid4().hex[:8]+'.csv');path.write_text(pasted.value.strip()+'\n',encoding='utf-8-sig')
-            result=export_prediction(bundle,predict_file(bundle,path,root));state['result']=result
+            result=export_prediction(bundle,predict_file(bundle,path,root,on_progress=lambda text:setattr(s3,'value','<p>'+html.escape(text)+'</p>')));state['result']=result
             render_summary()
             rows=result['rows'];options=[]
             for k in bundle['models']:
@@ -194,8 +203,8 @@ def show_workflow_app(root):
     vector=w.Accordion(children=[pasted]);vector.set_title(0,'선택 사항: 벡터 CSV를 붙여넣어 검사');vector.selected_index=None
     app=w.VBox([w.HTML('<div style="background:#17354b;color:white;padding:20px;border-radius:10px"><h2 style="color:white">학습하고, 새 샘플을 반복 검사하기</h2><p>① 학습 데이터 준비 → ② 모델 학습 → ③ 새 샘플 배치 검사 반복</p><small>회사 피드백 UI 개선판 · 2026-11-02</small></div>'),
         w.HTML('<h3>① 학습 데이터 넣기</h3><p>자료 종류를 고른 뒤 학습 파일을 올리거나 파일 목록에서 선택하세요. Windows에서는 이 PC의 파일 선택 창을 사용합니다. 창이 열리지 않으면 파일 전체 경로를 붙여넣어 추가하세요.</p>'),family,upload_train,train,files_refresh,drop,advanced,first,s1,out1,
-        w.HTML('<h3>② 모델 학습하기</h3><p>기업 진성 라벨이 있으면 라벨을, 없으면 MASTER와 OK를 참조해 학습합니다. 이 단계에서 전처리·모델·PCA가 고정됩니다. 아래 그림은 학습 분포이며 시험 정확도 그림이 아닙니다.</p>'),model,second,s2,out2,learned,trainplot,modeldownload,
+        w.HTML('<h3>② 모델 학습하기</h3><p>기업 진성 라벨이 있으면 라벨을, 없으면 MASTER와 OK를 참조해 학습합니다. 이 단계에서 전처리·모델·PCA가 고정됩니다. 아래 그림은 학습 분포이며 시험 정확도 그림이 아닙니다.</p>'),model,modelnote,tabicl_all_ok,second,s2,out2,learned,trainplot,modeldownload,
         w.HTML('<h3>③ NG 판정 결과 및 상세 현황</h3><p>현재 파일은 ③번만 눌러 결과를 확인합니다. 다음 파일은 새로 선택해 ③번만 반복할 수 있습니다. 보라 별: MASTER / 초록 원: 최대값0 / 파랑 원: 검사기 합격 / 빨강: 진성 의심 / 주황: 가성 후보.</p>'),upload_test,test,vector,third,s3,
         w.HTML('<p>아래 검출값 범위는 그래프·상세 표의 조회 조건입니다. 모델·PCA·판정은 바꾸지 않습니다. 범위 밖 수량도 원본 총 NG에 포함됩니다.</p>'),view,out3,tested,testplot,group,w.HBox([kind,page]),search,sampletable,resultdownload])
     display(app);display(upload_train.javascript('notebooks/학습검사_업로드'));display(upload_test.javascript('notebooks/학습검사_업로드'))
-    return {'app':app,'state':state,'family':family,'train':train,'test':test,'prepare':first,'fit':second,'predict':third,'status':[s1,s2,s3],'model':model,'drop':drop,'end':end,'pasted':pasted,'learned':learned,'tested':tested,'upload_train':upload_train,'upload_test':upload_test,'view':view,'kind':kind,'group':group}
+    return {'app':app,'state':state,'family':family,'train':train,'test':test,'prepare':first,'fit':second,'predict':third,'status':[s1,s2,s3],'model':model,'modelnote':modelnote,'tabicl_all_ok':tabicl_all_ok,'drop':drop,'end':end,'pasted':pasted,'learned':learned,'tested':tested,'upload_train':upload_train,'upload_test':upload_test,'view':view,'kind':kind,'group':group}

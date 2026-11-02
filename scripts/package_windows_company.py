@@ -56,6 +56,12 @@ def build(root, destination):
 이 파일에는 실제 회사 데이터가 있으므로 회사 관계자에게 비공개로 전달하세요.
 
 사용설명서.html을 브라우저에서 열면 설치·실행 방법을 볼 수 있습니다.
+
+2026-11-02 UI 개선
+  그래프 색/모양 구분, 원본 NG 합계 검증, RAW 연결 상세 표와 CSV 저장
+  검출값 0~5 / 0~10 / 0~20 / 전체(100 제외) 조회 범위
+  Windows 기본 파일 선택 및 전체 경로 입력 지원
+  조회 범위는 표시 조건이며 학습·판정 변경이나 모델 고도화가 아닙니다.
 '''
     entries['00_먼저읽어주세요.txt']=intro.replace('\n','\r\n').encode('utf-8-sig')
     page='<!doctype html><meta charset="utf-8"><title>회사 실행 통합본 안내</title><style>body{font:18px/1.8 sans-serif;max-width:1000px;margin:40px auto;padding:0 20px}pre{white-space:pre-wrap;font:inherit}h1{color:#17354b}</style><h1>한국무브넥스 회사 실행 통합본</h1><pre>'+html.escape(intro)+'\n'+html.escape(guide)+'</pre>'

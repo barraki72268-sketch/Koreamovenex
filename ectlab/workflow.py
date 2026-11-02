@@ -51,6 +51,8 @@ def _meta(g,profile,legacy=False):
     r['calendar_date']=g['calendar_date'].reset_index(drop=True) if 'calendar_date' in g else r['date']
     r['profile']=profile;r['position']=pd.to_numeric(r.position,errors='raise').astype(int)
     for col in ('line','product','date','time','counter','source_sheet'):r[col]=r[col].fillna('').astype(str)
+    metadata_missing=r.line.str.strip().eq('')|r['product'].str.strip().eq('')
+    r.loc[metadata_missing,'reason']='라인 또는 품번 누락: 입력 확인 필요'
     sources=g.get('source_file',pd.Series('',index=g.index)).astype(str).to_numpy()
     r['sample_id']=[f'{profile}|{f}|{s}|{n}|P{p}' for f,s,n,p in zip(sources,r.source_sheet,r.source_row,r.position)]
     r['conflict']=r.master&r.equipment_label.ne('NG')
@@ -80,6 +82,14 @@ def read_groups(path,profile,root,training=False,day_start=6,on_progress=None):
         if good:csv=existing/(profile+'_raw.csv.gz')
         else:
             folder=new_folder(root,'입력변환');csv=converter.convert_workbook(profile,path,folder,on_progress=on_progress)
+            if file_hash(path)!=digest:raise ValueError('Excel이 읽는 중 변경됐습니다. 파일을 저장한 뒤 다시 선택하세요.')
+            existing.mkdir(parents=True,exist_ok=True)
+            cached={}
+            for suffix in ('_raw.csv.gz','_schema.json','_inventory.json'):
+                name=profile+suffix;target=existing/name
+                shutil.copyfile(Path(folder)/name,target);cached[name]=file_hash(target)
+            (existing/'cache.json').write_text(json.dumps({'source_sha256':digest,'files':cached},ensure_ascii=False),encoding='utf-8')
+            csv=existing/(profile+'_raw.csv.gz')
         raw=pd.read_csv(csv,dtype={'source_sheet':str},low_memory=False)
     else:raise ValueError('지원하는 .xlsx / .csv / .csv.gz를 사용하세요.')
     if vector:
@@ -106,7 +116,7 @@ def read_groups(path,profile,root,training=False,day_start=6,on_progress=None):
         if missing:raise ValueError('선택한 자료 종류와 파일 형식이 다릅니다: '+', '.join(sorted(missing)))
     raw=raw.copy();raw['_input_order']=np.arange(len(raw))
     groups={}
-    for key,g in raw.groupby(['line','product','position'] if vector or profile=='c10' else ['c3','c4','c6'],sort=False):
+    for key,g in raw.groupby(['line','product','position'] if vector or profile=='c10' else ['c3','c4','c6'],sort=False,dropna=False):
         g=g.reset_index(drop=True).copy()
         if vector:
             cols=[c for c in g if c.startswith('feature__')];features=[c[len('feature__'):] for c in cols]

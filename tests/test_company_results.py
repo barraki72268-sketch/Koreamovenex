@@ -1,6 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile,unittest
+from unittest.mock import patch
 import numpy as np,pandas as pd,joblib
 from ectlab.company_results import classify_rows,ng_summary,detail_table,view_mask
 from ectlab.workflow import prepare_training,fit_prepared,read_groups,predict_groups,pca_figure
@@ -9,6 +10,26 @@ from scripts.make_delivery_demo import make_workbook
 
 
 class CompanyResultsTests(unittest.TestCase):
+    def test_repeated_excel_read_uses_verified_cache(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);p=make_workbook(root/'crack.xlsx','crack')
+            train=read_groups(p,'crack',root,training=True)
+            with patch('ectlab.delivery_excel.convert_workbook',side_effect=AssertionError('Unnecessary Excel reparse')):
+                test=read_groups(p,'crack',root,training=False)
+            self.assertEqual(sum(len(g['rows']) for g in train.values()),sum(len(g['rows']) for g in test.values()))
+
+    def test_missing_product_does_not_silently_drop_source_ng_rows(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);repo=Path(__file__).resolve().parents[1]
+            raw=pd.read_csv(repo/'data/demo/연습용_ECT.csv.gz').head(40)
+            raw.loc[0,['line','product','equipment_label']]=[np.nan,np.nan,'NG']
+            path=root/'missing.csv';raw.to_csv(path,index=False)
+            groups=read_groups(path,'c10',root)
+            rows=pd.concat([g['rows'] for g in groups.values()])
+            self.assertEqual(len(rows),len(raw))
+            self.assertEqual(int(rows.equipment_label.eq('NG').sum()),int(raw.equipment_label.eq('NG').sum()))
+            self.assertTrue(rows['reason'].str.contains('라인 또는 품번 누락').any())
+
     def test_raw_ng_is_fully_accounted_even_when_view_excludes_zero_and_extremes(self):
         records=[]
         for i,(raw,pred,maximum,master) in enumerate([

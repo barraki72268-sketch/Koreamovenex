@@ -191,7 +191,7 @@ def show_workflow_app(root):
     refresh();invalidate()
     advanced=w.Accordion(children=[w.VBox([end,boundary,w.HBox([low,high])])]);advanced.set_title(0,'필요할 때만: 학습 기간 · 검사일 · 점수 기준');advanced.selected_index=None
     vector=w.Accordion(children=[pasted]);vector.set_title(0,'선택 사항: 벡터 CSV를 붙여넣어 검사');vector.selected_index=None
-    app=w.VBox([w.HTML('<div style="background:#17354b;color:white;padding:20px;border-radius:10px"><h2 style="color:white">학습하고, 새 샘플을 반복 검사하기</h2><p>① 학습 데이터 준비 → ② 모델 학습 → ③ 새 샘플 배치 검사 반복</p></div>'),
+    app=w.VBox([w.HTML('<div style="background:#17354b;color:white;padding:20px;border-radius:10px"><h2 style="color:white">학습하고, 새 샘플을 반복 검사하기</h2><p>① 학습 데이터 준비 → ② 모델 학습 → ③ 새 샘플 배치 검사 반복</p><small>회사 피드백 UI 개선판 · 2026-11-02</small></div>'),
         w.HTML('<h3>① 학습 데이터 넣기</h3><p>자료 종류를 고른 뒤 학습 파일을 올리거나 파일 목록에서 선택하세요. Windows에서는 이 PC의 파일 선택 창을 사용합니다. 창이 열리지 않으면 파일 전체 경로를 붙여넣어 추가하세요.</p>'),family,upload_train,train,files_refresh,drop,advanced,first,s1,out1,
         w.HTML('<h3>② 모델 학습하기</h3><p>기업 진성 라벨이 있으면 라벨을, 없으면 MASTER와 OK를 참조해 학습합니다. 이 단계에서 전처리·모델·PCA가 고정됩니다. 아래 그림은 학습 분포이며 시험 정확도 그림이 아닙니다.</p>'),model,second,s2,out2,learned,trainplot,modeldownload,
         w.HTML('<h3>③ NG 판정 결과 및 상세 현황</h3><p>현재 파일은 ③번만 눌러 결과를 확인합니다. 다음 파일은 새로 선택해 ③번만 반복할 수 있습니다. 보라 별: MASTER / 초록 원: 최대값0 / 파랑 원: 검사기 합격 / 빨강: 진성 의심 / 주황: 가성 후보.</p>'),upload_test,test,vector,third,s3,

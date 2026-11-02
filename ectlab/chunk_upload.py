@@ -1,5 +1,6 @@
 """Authenticated HTTP chunk uploads; only small UI events use the kernel channel."""
 from pathlib import Path
+import os,html
 import json
 import re
 import uuid
@@ -20,12 +21,55 @@ class ChunkUpload(w.VBox):
         self.events.add_class(self.identity+'-events')
         self.events.observe(self.receive,names='value')
         import html
-        native=w.HTML('<div id="'+self.identity+'"><button type="button" style="padding:9px 16px;background:#edf1f4;color:#19374c;border:1px solid #c4ced8;border-radius:5px;cursor:pointer;font:inherit">'+html.escape(label)+'</button><input type="file" accept="'+','.join(extensions)+'" hidden><div class="upload-status" style="font-size:13px;margin:8px 0;overflow-wrap:anywhere;color:#38566d"></div><progress max="100" value="0" hidden style="width:95%"></progress></div>')
-        super().__init__(children=[native,self.events],**kwargs)
+        self.local_mode=os.name=='nt'
+        if self.local_mode:
+            self.choose=w.Button(description=label,icon='folder-open',layout=w.Layout(width='260px'))
+            self.path=w.Text(placeholder='선택 창이 열리지 않으면 파일 탐색기에서 복사한 전체 경로를 붙여넣으세요.',layout=w.Layout(width='98%'))
+            self.use_path=w.Button(description='위 경로의 파일 추가',icon='file')
+            self.local_status=w.HTML()
+            self.choose.on_click(self.choose_local)
+            self.use_path.on_click(lambda _:self.import_local(self.path.value))
+            super().__init__(children=[self.choose,self.path,self.use_path,self.local_status,self.events],**kwargs)
+        else:
+            native=w.HTML('<div id="'+self.identity+'"><button type="button" style="padding:9px 16px;background:#edf1f4;color:#19374c;border:1px solid #c4ced8;border-radius:5px;cursor:pointer;font:inherit">'+html.escape(label)+'</button><input type="file" accept="'+','.join(extensions)+'" hidden><div class="upload-status" style="font-size:13px;margin:8px 0;overflow-wrap:anywhere;color:#38566d"></div><progress max="100" value="0" hidden style="width:95%"></progress></div>')
+            super().__init__(children=[native,self.events],**kwargs)
 
     @observe('disabled')
     def sync_disabled(self,change):
         if hasattr(self,'events'):self.events.disabled=change['new']
+        for name in ('choose','path','use_path'):
+            if hasattr(self,name):getattr(self,name).disabled=change['new']
+
+    def choose_local(self,_=None):
+        if self.disabled:return
+        window=None
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            window=tk.Tk();window.withdraw();window.attributes('-topmost',True)
+            name=filedialog.askopenfilename(parent=window,title='분석할 CSV·Excel 파일 선택',filetypes=[('측정 자료','*.xlsx *.csv *.csv.gz'),('모든 파일','*.*')])
+            if name:self.import_local(name)
+        except Exception as exc:
+            self.error=str(exc);self.local_status.value='<p>파일 선택 창을 열지 못했습니다. 아래 전체 경로로 추가해 주세요. '+html.escape(str(exc))+'</p>'
+        finally:
+            if window is not None:window.destroy()
+
+    def import_local(self,name):
+        if self.disabled:return
+        self.error='';self.busy=True
+        try:
+            path=Path(str(name).strip().strip('"')).expanduser().resolve(strict=True)
+            if not path.is_file():raise ValueError('폴더가 아닌 파일을 선택하세요.')
+            if path.stat().st_size>100*1024*1024:raise ValueError('100MB 이하의 파일을 사용해 주세요.')
+            from ectlab.delivery_ui import save_upload
+            copied=save_upload(self.folder,path.name,path.read_bytes(),extensions=self.extensions)
+            self.completed(copied)
+            if hasattr(self,'local_status'):self.local_status.value='<p style="color:#21724b">추가 완료 · '+html.escape(path.name)+'</p>'
+            return copied
+        except Exception as exc:
+            self.error=str(exc)
+            if hasattr(self,'local_status'):self.local_status.value='<p style="color:#bd2c28">파일 확인: '+html.escape(str(exc))+'</p>'
+        finally:self.busy=False
 
     def receive(self,event):
         message={};error=''
@@ -53,6 +97,9 @@ class ChunkUpload(w.VBox):
     def javascript(self, relative_folder):
         # The standard Contents API accepts chunked PUTs, as Jupyter's file browser does.
         from IPython.display import Javascript
+        if self.local_mode:
+            from IPython.display import HTML
+            return HTML('')
         source=r'''
         (()=>{
           const id=IDENTITY, relative=RELATIVE;

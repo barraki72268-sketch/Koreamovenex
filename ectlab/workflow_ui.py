@@ -6,6 +6,7 @@ from IPython.display import display,HTML,clear_output
 from ectlab.chunk_upload import ChunkUpload
 from ectlab.workflow import prepare_training,fit_prepared,predict_file,export_prediction,pca_figure
 from ectlab.exploration import download_href
+from ectlab.company_results import ng_summary,detail_table,styled_details,view_mask
 
 
 def available_files(root,profile,upload):
@@ -22,7 +23,7 @@ def available_files(root,profile,upload):
         demo=root/'data/demo/연습용_ECT.csv.gz'
     else:demo=root/'data/demo/excel'/('사용법_예제_'+('크랙' if profile=='crack' else '샤프트')+'.xlsx')
     if demo.is_file():paths.append(demo)
-    paths.extend(p for p in upload.glob('*') if p.is_file() and p.name.endswith(('.xlsx','.csv','.csv.gz')))
+    paths.extend(p for p in upload.glob('*') if p.is_file() and p.name.lower().endswith(('.xlsx','.csv','.csv.gz')))
     return list({str(p):p for p in paths}.values())
 
 
@@ -51,6 +52,12 @@ def show_workflow_app(root):
     page=w.BoundedIntText(value=1,min=1,max=1,description='페이지:')
     pasted=w.Textarea(description='벡터 CSV:',placeholder='선택 사항: 학습 후 내려받은 벡터 입력 양식과 같은 헤더/행을 붙여넣습니다.',layout=w.Layout(width='98%',height='110px'),style=labelstyle)
     modeldownload=w.HTML();resultdownload=w.HTML()
+    view=w.Dropdown(options=[('전체 (100 포함)','full'),('0 ~ 5.0',5),('0 ~ 10.0',10),('0 ~ 20.0',20),('전체 (100 제외)','all')],value='full',description='검출값 조회 범위:',style=labelstyle,layout=wide)
+    group=w.Dropdown(options=[('전체 품번·위치',None)],description='상세 조회 대상:',style=labelstyle,layout=wide)
+    kind.options=['NG 전체 (MASTER 포함)','전체','MASTER','진성불량 의심','가성불량 후보','기준자료 (최대값 0)','검사기 합격','FN 후보','보류','입력 확인 필요']
+    kind.value='NG 전체 (MASTER 포함)'
+    files_refresh=w.Button(description='파일 목록 새로고침',icon='refresh')
+    sampletable.layout.overflow='auto'
 
     def reset_test():
         state['result']=None;out3.clear_output();testplot.clear_output();sampletable.clear_output();tested.options=[];resultdownload.value='';s3.value=''
@@ -71,11 +78,12 @@ def show_workflow_app(root):
         finally:state['refreshing']=False
         if new_train:invalidate()
         elif new_test:reset_test()
-    upload_train=ChunkUpload(upload,lambda p:refresh(new_train=p),label='학습 파일 올리기',extensions=('.xlsx','.csv','.csv.gz'))
+    upload_train=ChunkUpload(upload,lambda p:refresh(new_train=p),label='분석할 Excel·CSV 선택',extensions=('.xlsx','.csv','.csv.gz'))
     upload_test=ChunkUpload(upload,lambda p:refresh(new_test=p),label='새 검사 파일 올리기',extensions=('.xlsx','.csv','.csv.gz'))
     def change_family(_):
-        drop.value=family.value=='shaft';train.value='';test.value='';refresh();invalidate()
+        drop.value=family.value=='shaft';view.value='all' if family.value=='shaft' else 'full';train.value='';test.value='';refresh();invalidate()
     family.observe(change_family,names='value')
+    files_refresh.on_click(lambda _:refresh())
     for control in (train,drop,end,boundary):control.observe(invalidate,names='value')
     def invalidate_fit(*_):
         if state['busy'] or state['refreshing']:return
@@ -94,26 +102,37 @@ def show_workflow_app(root):
         with trainplot:
             clear_output(wait=True)
             if state['bundle'] is None or learned.value is None:return
-            fig=pca_figure(state['bundle'],learned.value);display(fig);plt.close(fig)
+            fig=pca_figure(state['bundle'],learned.value,view_limit=view.value);display(fig);plt.close(fig)
     def plot_test(*_):
         with testplot:
             clear_output(wait=True)
             if state['bundle'] is None or state['result'] is None or tested.value is None:return
             rows=state['result']['rows'];key=tested.value
             part=rows[rows.line.eq(key[0])&rows['product'].eq(key[1])&rows.position.eq(key[2])]
-            fig=pca_figure(state['bundle'],key,part);display(fig);plt.close(fig)
+            fig=pca_figure(state['bundle'],key,part,view_limit=view.value);display(fig);plt.close(fig)
+    def render_summary(*_):
+        with out3:
+            clear_output(wait=True)
+            if state['result'] is None:return
+            rows=state['result']['rows']
+            display(ng_summary(state['bundle'],rows,view.value))
+            display(HTML('<p>총 NG = 원본 설비 NG 행 수 (MASTER 포함). MASTER + 가성 추정 + 진성 추정 + 보류 + 기준자료0 + 입력확인의 합계를 검증합니다. 조회 범위 밖 자료도 총 NG에서 빼지 않습니다.</p><p>진성·가성은 AI 추정이며 유사점수는 실제 불량 확률이 아닙니다. 최대값 0은 판정 미확정 기준자료입니다.</p>'))
     def render_rows(*_):
         with sampletable:
             clear_output(wait=True)
             if state['result'] is None:return
             rows=state['result']['rows']
-            if kind.value!='전체':rows=rows[rows.예측.eq(kind.value)]
+            if group.value is not None:
+                key=group.value;rows=rows[rows.line.eq(key[0])&rows['product'].eq(key[1])&rows.position.eq(key[2])]
+            if kind.value=='NG 전체 (MASTER 포함)':rows=rows[rows.equipment_label.eq('NG')]
+            elif kind.value!='전체':rows=rows[rows['판정'].eq(kind.value)]
+            before=len(rows);rows=rows[view_mask(rows,view.value)]
             if search.value.strip():rows=rows[rows[['sample_id','date','예측']].astype(str).agg(' | '.join,axis=1).str.contains(search.value.strip(),regex=False,case=False)]
             page.max=max(1,(len(rows)+49)//50)
-            display(HTML(f'<p>검색 {len(rows):,}행 · {page.value}/{page.max}페이지 · 파일에는 전체 행이 저장됩니다.</p>'))
-            cols=['sample_id','line','product','position','equipment_label','점수','예측','설명','PC1','PC2','학습기준','검증구분']
-            renamed={'sample_id':'샘플ID','line':'라인','product':'품번','position':'위치','equipment_label':'설비판정'}
-            display(rows.iloc[(page.value-1)*50:page.value*50][cols].rename(columns=renamed))
+            display(HTML(f'<p>표시 {len(rows):,}행 / 범위 적용 전 {before:,}행 · {page.value}/{page.max}페이지 · 전체 행과 원본 연결 정보는 CSV에 저장됩니다. 붉은 글자는 진성 의심 또는 FN 후보입니다.</p>'))
+            detail=detail_table(rows.iloc[(page.value-1)*50:page.value*50])
+            cols=['검사일자','시간','검사수량','라인','품번','판정','설비판정(원본)','위치','최대검출값','MAX FRQ','Part_No','가성유사점수(%)','진성유사점수(%)','원본시트','원본행']
+            display(styled_details(detail[cols]))
     def prepare(_):
         invalidate()
         if not train.value:s1.value='<p>학습 파일을 고르거나 올려 주세요.</p>';return
@@ -122,6 +141,7 @@ def show_workflow_app(root):
             with out1:
                 p=prepare_training(train.value,family.value,root,drop.value,end.value.strip(),boundary.value,on_progress=lambda text:setattr(s1,'value','<p>'+html.escape(text)+'</p>'))
                 state['prepared']=p;display(p['summary'])
+            if not test.value:test.value=train.value
             s1.value='<p style="color:#21724b">데이터 준비 완료. 아래 ② 모델 학습을 누르세요. 시험 데이터는 전처리 기준을 정하는 데 사용하지 않습니다.</p>'
         except Exception as exc:s1.value='<p>확인: '+html.escape(str(exc))+'</p>'
         finally:busy(False)
@@ -148,13 +168,12 @@ def show_workflow_app(root):
             path=Path(test.value) if test.value else None
             if pasted.value.strip():path=upload/('벡터배치_'+uuid.uuid4().hex[:8]+'.csv');path.write_text(pasted.value.strip()+'\n',encoding='utf-8-sig')
             result=export_prediction(bundle,predict_file(bundle,path,root));state['result']=result
-            with out3:
-                display(result['summary'].rename(columns={'line':'라인','product':'품번','position':'위치'}))
-                display(HTML('<p>FN은 현장 확인이 필요한 후보입니다. 진성·가성은 기업 라벨 학습 또는 MASTER 유사 참조에 따른 후보 예측입니다. 정답 없는 새 샘플의 실제 정확도는 계산하지 않습니다.</p>'))
+            render_summary()
             rows=result['rows'];options=[]
             for k in bundle['models']:
                 if (rows.line.eq(k[0])&rows['product'].eq(k[1])&rows.position.eq(k[2])).any():options.append((f'{k[0]} / {k[1]} / 위치 {k[2]}',k))
             tested.options=options
+            group.options=[('전체 품번·위치',None)]+options
             if options:tested.value=options[0][1]
             plot_test();page.value=1;render_rows()
             resultdownload.value='<p><a href="'+html.escape(download_href(result['zip'],root),quote=True)+'" download>이번 배치의 결과·PCA·전체 샘플 CSV 다운로드 ↓</a></p>'
@@ -165,13 +184,17 @@ def show_workflow_app(root):
         finally:busy(False)
     first.on_click(prepare);second.on_click(fit);third.on_click(predict)
     learned.observe(plot_train,names='value');tested.observe(plot_test,names='value')
-    for control in (kind,search,page):control.observe(render_rows,names='value')
+    for control in (kind,search,page,group):control.observe(render_rows,names='value')
+    def view_changed(*_):
+        plot_train();plot_test();render_summary();render_rows()
+    view.observe(view_changed,names='value')
     refresh();invalidate()
     advanced=w.Accordion(children=[w.VBox([end,boundary,w.HBox([low,high])])]);advanced.set_title(0,'필요할 때만: 학습 기간 · 검사일 · 점수 기준');advanced.selected_index=None
     vector=w.Accordion(children=[pasted]);vector.set_title(0,'선택 사항: 벡터 CSV를 붙여넣어 검사');vector.selected_index=None
     app=w.VBox([w.HTML('<div style="background:#17354b;color:white;padding:20px;border-radius:10px"><h2 style="color:white">학습하고, 새 샘플을 반복 검사하기</h2><p>① 학습 데이터 준비 → ② 모델 학습 → ③ 새 샘플 배치 검사 반복</p></div>'),
-        w.HTML('<h3>① 학습 데이터 넣기</h3><p>자료 종류를 고른 뒤 학습 파일을 올리거나 서버 목록에서 선택하세요. 샤프트의 포화 채널 제외 기준은 학습 데이터에서만 정합니다.</p>'),family,upload_train,train,drop,advanced,first,s1,out1,
+        w.HTML('<h3>① 학습 데이터 넣기</h3><p>자료 종류를 고른 뒤 학습 파일을 올리거나 파일 목록에서 선택하세요. Windows에서는 이 PC의 파일 선택 창을 사용합니다. 창이 열리지 않으면 파일 전체 경로를 붙여넣어 추가하세요.</p>'),family,upload_train,train,files_refresh,drop,advanced,first,s1,out1,
         w.HTML('<h3>② 모델 학습하기</h3><p>기업 진성 라벨이 있으면 라벨을, 없으면 MASTER와 OK를 참조해 학습합니다. 이 단계에서 전처리·모델·PCA가 고정됩니다. 아래 그림은 학습 분포이며 시험 정확도 그림이 아닙니다.</p>'),model,second,s2,out2,learned,trainplot,modeldownload,
-        w.HTML('<h3>③ 새 샘플 넣고 검사하기</h3><p>한 행 또는 수천 행을 한 번에 검사합니다. 다음 파일도 이 단계만 반복하세요. 배경은 학습 분포, 색이 있는 점은 새 샘플 예측입니다. PCA는 다시 학습하지 않습니다.</p>'),upload_test,test,vector,third,s3,out3,tested,testplot,w.HBox([kind,page]),search,sampletable,resultdownload])
+        w.HTML('<h3>③ NG 판정 결과 및 상세 현황</h3><p>현재 파일은 ③번만 눌러 결과를 확인합니다. 다음 파일은 새로 선택해 ③번만 반복할 수 있습니다. 보라 별: MASTER / 초록 원: 최대값0 / 파랑 원: 검사기 합격 / 빨강: 진성 의심 / 주황: 가성 후보.</p>'),upload_test,test,vector,third,s3,
+        w.HTML('<p>아래 검출값 범위는 그래프·상세 표의 조회 조건입니다. 모델·PCA·판정은 바꾸지 않습니다. 범위 밖 수량도 원본 총 NG에 포함됩니다.</p>'),view,out3,tested,testplot,group,w.HBox([kind,page]),search,sampletable,resultdownload])
     display(app);display(upload_train.javascript('notebooks/학습검사_업로드'));display(upload_test.javascript('notebooks/학습검사_업로드'))
-    return {'app':app,'state':state,'family':family,'train':train,'test':test,'prepare':first,'fit':second,'predict':third,'status':[s1,s2,s3],'model':model,'drop':drop,'end':end,'pasted':pasted,'learned':learned,'tested':tested,'upload_train':upload_train,'upload_test':upload_test}
+    return {'app':app,'state':state,'family':family,'train':train,'test':test,'prepare':first,'fit':second,'predict':third,'status':[s1,s2,s3],'model':model,'drop':drop,'end':end,'pasted':pasted,'learned':learned,'tested':tested,'upload_train':upload_train,'upload_test':upload_test,'view':view,'kind':kind,'group':group}

@@ -45,6 +45,10 @@ def _meta(g,profile,legacy=False):
         maximum=pd.to_numeric(g.c7,errors='coerce')
         r['reason']=np.where(maximum.eq(0),'최대값 0: 판정 불명',np.where(maximum.isna(),'최대값 결측',''))
     r=r.reset_index(drop=True)
+    r['max_value']=maximum.reset_index(drop=True)
+    for name,column in [('max_frequency','max_frequency' if legacy else 'c8'),('part_no','part_no' if legacy else ('c77' if profile=='crack' else 'c105')),('source_file','source_file')]:
+        r[name]=g[column].reset_index(drop=True) if column in g else ''
+    r['calendar_date']=g['calendar_date'].reset_index(drop=True) if 'calendar_date' in g else r['date']
     r['profile']=profile;r['position']=pd.to_numeric(r.position,errors='raise').astype(int)
     for col in ('line','product','date','time','counter','source_sheet'):r[col]=r[col].fillna('').astype(str)
     sources=g.get('source_file',pd.Series('',index=g.index)).astype(str).to_numpy()
@@ -84,7 +88,10 @@ def read_groups(path,profile,root,training=False,day_start=6,on_progress=None):
         if raw.sample_id.isna().any() or raw.sample_id.duplicated().any():raise ValueError('샘플 ID는 비어 있거나 중복될 수 없습니다.')
         for col in ('date','time','counter'):raw[col]=raw.get(col,pd.Series('',index=raw.index)).fillna('').astype(str)
         if training and 'label' not in raw:raise ValueError('벡터 학습 CSV에는 label(normal/master/true/false/unknown)을 넣으세요.')
-        raw['source_sheet']='vector';raw['source_row']=np.arange(len(raw))+2
+        raw['source_sheet']='vector';raw['source_row']=np.arange(len(raw))+2;raw['source_file']=path.name
+        for col in ('max_frequency','part_no'):raw[col]=raw.get(col,pd.Series('',index=raw.index)).fillna('')
+        if 'max_value' not in raw:raw['max_value']=np.nan
+        raw['calendar_date']=raw.date
         raw['position']=pd.to_numeric(raw.position,errors='raise').astype(int)
         raw['line']=raw.line.astype(str);raw['product']=raw['product'].astype(str)
         raw['equipment_label']=raw.equipment_label.fillna('미입력').astype(str)
@@ -173,13 +180,16 @@ def fit_prepared(prepared,root,model_name='RandomForest',low=.1,high=.9):
         plot_ids=evenly_sample(np.flatnonzero(valid),2000)
         # All rare labelled references remain visible in the training plot.
         plot_ids=np.unique(np.r_[plot_ids,np.flatnonzero(valid&r.label.isin(['true','false','master']).to_numpy())])
+        reference_zero=g['selected']&r.max_value.eq(0).to_numpy()&np.isfinite(A).all(axis=1)
+        plot_ids=np.unique(np.r_[plot_ids,evenly_sample(np.flatnonzero(reference_zero),500)])
         plotrows=r.iloc[plot_ids].copy();plotrows[['PC1','PC2']]=pca.transform(scaler.transform(A[plot_ids]))
         mode='기업 진성 / 정상·가성 라벨 학습' if direct else 'MASTER / 설비 OK·가성 참조 학습'
         signatures=[signature(row,x) for (_,row),x in zip(r.iterrows(),A)]
         models[key]={'model':estimator,'model_name':model_name,'features':list(np.asarray(g['features'])[mask]),'all_features':g['features'],
                      'descriptors':[f for f,keep in zip(g['descriptors'],mask) if keep], 'scaler':scaler,'pca':pca,'reference':plotrows,
                      'mode':mode,'direct_labels':direct,'train_rows':len(indices),'positive_count':int(positive.sum()),'negative_count':len(neg),
-                     'training_file_signatures':{signatures[i] for i in np.flatnonzero(g['selected'])},'model_signatures':{signatures[i] for i in indices}}
+                     'training_file_signatures':{signatures[i] for i in np.flatnonzero(g['selected'])},'model_signatures':{signatures[i] for i in indices},
+                     'master_signatures':{signatures[i] for i in np.flatnonzero(g['selected']&r.master.to_numpy())}}
         summary.append(dict(base,상태='학습 완료',학습기준=mode,양성=int(positive.sum()),음성=len(neg),사용입력수=int(mask.sum()),PCA설명비율=float(pca.explained_variance_ratio_.sum())))
     if not models:raise ValueError('학습 가능한 구간이 없습니다. ①번 수량표에서 유효 MASTER/기업 진성, OK·가성, 남은 입력 수를 확인하세요.')
     bundle={'schema':1,'profile':prepared['profile'],'source_hash':prepared['source_hash'],'source_file':Path(prepared['source']).name,
@@ -208,6 +218,10 @@ def predict_groups(bundle,groups):
         drift=not g['vector'] and set(features)!=set(m['all_features'])
         if missing or drift:r['설명']='학습 때와 주파수/입력 컬럼이 다름: '+', '.join(sorted(missing));output.append(r);continue
         A=g['X'][:,[features.index(f) for f in m['features']]]
+        signatures=pd.Series([signature(row,x) for (_,row),x in zip(r.iterrows(),A)],index=r.index)
+        r['master']=r.master|signatures.isin(m.get('master_signatures',set()))
+        conflicts=r.master&r.equipment_label.ne('NG')
+        r.loc[conflicts,'reason']='MASTER 후보 / 설비 OK 충돌'
         valid=r.reason.eq('').to_numpy()&np.isfinite(A).all(axis=1)
         r['설명']=np.where(r.reason.ne(''),r.reason,np.where(np.isfinite(A).all(axis=1),'','측정값 결측·무한값'))
         saturation=np.zeros(len(r),bool)
@@ -224,14 +238,16 @@ def predict_groups(bundle,groups):
             prediction[saturation[ids]]='판정 보류'
             r.loc[ids,'예측']=prediction
             r.loc[ids,'설명']=np.where(saturation[ids],'학습 이후 새 포화값: 입력 기준 유지·보류',np.where(hi,'높음 기준 이상',np.where(lo,'낮음 기준 이하','두 기준 사이')))
-        signatures=pd.Series([signature(row,x) for (_,row),x in zip(r.iterrows(),A)],index=r.index)
+        zeros=np.flatnonzero(r.get('max_value',pd.Series(np.nan,index=r.index)).eq(0).to_numpy()&np.isfinite(A).all(axis=1))
+        if len(zeros):r.loc[zeros,['PC1','PC2']]=m['pca'].transform(m['scaler'].transform(A[zeros]))
         r['학습파일중복']=signatures.isin(m['training_file_signatures']);r['모델학습행중복']=signatures.isin(m['model_signatures'])
         output.append(r)
     if not output:raise ValueError('검사할 측정행이 없습니다.')
     result=pd.concat(output,ignore_index=True).sort_values('order',kind='stable').reset_index(drop=True)
     result['검증구분']=np.where(result.학습파일중복,'학습 파일과 중복 · 독립 검증 아님','신규 입력 · 정답 확인 별도 필요')
     result['판정범위']='진성/가성은 후보 예측이며 실제 FN 확정은 현장 검사·정답 연결 필요'
-    return result
+    from ectlab.company_results import classify_rows
+    return classify_rows(result)
 
 
 def predict_file(bundle,path,root):
@@ -242,36 +258,55 @@ def predict_file(bundle,path,root):
     rows.to_csv(folder/'샘플별_예측결과.csv',index=False,encoding='utf-8-sig')
     summary=rows.groupby(['line','product','position','예측'],dropna=False).size().rename('수량').reset_index()
     summary.to_csv(folder/'배치_판정요약.csv',index=False,encoding='utf-8-sig')
-    record={'model_source_hash':bundle['source_hash'],'input_file':Path(path).name,'input_hash':file_hash(path),'refitted':False,'PCA_refitted':False,'rows':len(rows),'training_overlap_rows':int(rows.학습파일중복.sum()),'low':bundle['low'],'high':bundle['high'],'model_name':bundle['model_name']}
+    from ectlab.company_results import ng_summary,detail_table
+    ng=ng_summary(bundle,rows);detail=detail_table(rows)
+    original_ng=sum(int(g['rows'].equipment_label.eq('NG').sum()) for g in groups.values())
+    if int(ng['총 NG'].sum())!=original_ng or not ng['집계검증'].eq('일치').all():raise ValueError('원본 NG와 판정 요약 합계를 확인해 주세요.')
+    ng.to_csv(folder/'NG_판정요약.csv',index=False,encoding='utf-8-sig')
+    detail.to_csv(folder/'상세현황_RAW연결.csv',index=False,encoding='utf-8-sig')
+    record={'model_source_hash':bundle['source_hash'],'input_file':Path(path).name,'input_hash':file_hash(path),'refitted':False,'PCA_refitted':False,'rows':len(rows),'raw_ng_rows':original_ng,'ng_reconciled':True,'training_overlap_rows':int(rows.학습파일중복.sum()),'low':bundle['low'],'high':bundle['high'],'model_name':bundle['model_name']}
     (folder/'검사기록.json').write_text(json.dumps(record,ensure_ascii=False,indent=2),encoding='utf-8')
-    return {'rows':rows,'summary':summary,'folder':folder,'record':record}
+    return {'rows':rows,'summary':summary,'ng_summary':ng,'detail':detail,'folder':folder,'record':record}
 
 
-def pca_figure(bundle,key,predictions=None):
+def pca_figure(bundle,key,predictions=None,view_limit='full'):
     import matplotlib.pyplot as plt
     from ectlab.plots import style
-    style();m=bundle['models'][key];r=m['reference'];fig,ax=plt.subplots(figsize=(9,6))
+    from ectlab.company_results import classify_rows,view_mask,STYLES
+    style();m=bundle['models'][key];r=m['reference'].copy();fig,ax=plt.subplots(figsize=(9,6))
     if predictions is None:
-        for label,name,color,marker in [('normal','학습 설비 OK','#8c9daf','o'),('false','기업 가성','#37a275','o'),('unknown','정답 미확정 · PCA 참고','#b8bec6','.'),('master','학습 MASTER','#7951b0','*'),('true','기업 진성','#d45450','X')]:
-            ix=r.label.eq(label)
-            if ix.any():ax.scatter(r.loc[ix,'PC1'],r.loc[ix,'PC2'],c=color,marker=marker,s=95 if label in ('master','true') else 15,alpha=.8,label=f'{name} ({int(ix.sum())}표시)')
+        r['예측']=np.select([r.label.eq('true'),r.label.eq('false')],['진성불량 의심','가성불량 후보'],default='')
+        points=classify_rows(r)
+        unknown=points.equipment_label.eq('NG')&~points.master&~points.max_value.eq(0)&points.label.eq('unknown')
+        points.loc[unknown,'판정']='NG 미판정'
     else:
-        ax.scatter(r.PC1,r.PC2,c='#b5bec7',s=12,alpha=.3,label='고정된 학습 분포')
-        for name,color,marker in [('정상 유사','#287cbb','o'),('가성불량 후보','#299b74','^'),('진성불량 의심','#d45450','X'),('불량 의심 · FN 후보','#b83d91','X'),('판정 보류','#e4a236','D')]:
-            part=predictions[predictions.예측.eq(name)&predictions.PC1.notna()];part=part.iloc[evenly_sample(np.arange(len(part)),2000)]
-            if len(part):ax.scatter(part.PC1,part.PC2,c=color,marker=marker,s=48,alpha=.85,label=f'{name} ({len(part)}표시)')
+        background=r[view_mask(r,view_limit)]
+        ax.scatter(background.PC1,background.PC2,c='#b5bec7',s=10,alpha=.12,label='고정된 학습 분포')
+        points=classify_rows(predictions)
+    points=points[view_mask(points,view_limit)&points.PC1.notna()]
+    for name,(color,marker) in STYLES.items():
+        part=points[points['판정'].eq(name)]
+        total=len(part)
+        if name in ('검사기 합격','기준자료 (최대값 0)'):part=part.iloc[evenly_sample(np.arange(total),2000)]
+        if len(part):ax.scatter(part.PC1,part.PC2,c=color,marker=marker,s=140 if name=='MASTER' else 30,alpha=.75,label=f'{name} ({total:,}행)',zorder=5 if name=='MASTER' else 3)
     ax.set(title=f'{key[0]} / {key[1]} / 위치 {key[2]}\n{m["model_name"]} · {m["mode"]}\n학습 때 고정한 PCA · 2축 설명 비율 {m["pca"].explained_variance_ratio_.sum():.1%}',xlabel='PC1',ylabel='PC2')
-    ax.legend(fontsize=8);ax.grid(alpha=.15);fig.tight_layout();return fig
+    fig.text(.02,.01,'조회 범위만 적용 · PCA/판정 유지 · OK/기준자료는 최대 2,000점 표시 · 전체 수량은 표/CSV 확인',fontsize=8)
+    ax.legend(fontsize=8);ax.grid(alpha=.15);fig.tight_layout(rect=(0,.035,1,1));return fig
 
 
 def export_prediction(bundle,result):
     import matplotlib.pyplot as plt
     import html
-    folder=result['folder'];body='<html lang="ko"><meta charset="utf-8"><title>배치 검사 결과</title><style>body{font:16px/1.8 sans-serif;margin:24px}img{max-width:100%}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px}</style><h1>배치 검사 결과</h1><p>저장된 모델·전처리·PCA를 그대로 사용했습니다. 새 입력으로 다시 학습하지 않았습니다. 진성·가성 및 FN은 후보 예측이며 현장 확인이 필요합니다.</p>'+result['summary'].to_html(index=False)
+    from ectlab.company_results import ng_summary,detail_table,styled_details
+    result.setdefault('ng_summary',ng_summary(bundle,result['rows']))
+    result.setdefault('detail',detail_table(result['rows']))
+    folder=result['folder'];body='<html lang="ko"><meta charset="utf-8"><title>배치 검사 결과</title><style>body{font:16px/1.8 sans-serif;margin:24px}img{max-width:100%}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px}</style><h1>배치 검사 결과</h1><p>저장된 모델·전처리·PCA를 그대로 사용했습니다. 새 입력으로 다시 학습하지 않았습니다. 진성·가성 및 FN은 후보 예측이며 현장 확인이 필요합니다. 유사점수는 검증된 불량 확률이 아닙니다. 최대값 0은 판정 미확정 기준자료입니다.</p><h2>NG 판정 결과</h2>'+result['ng_summary'].to_html(index=False)
     for i,(key,m) in enumerate(bundle['models'].items(),1):
         rows=result['rows'];part=rows[rows.line.eq(key[0])&rows['product'].eq(key[1])&rows.position.eq(key[2])]
         if part.empty:continue
         fig=pca_figure(bundle,key,part);name=f'{i:02d}_신규샘플_PCA.png';fig.savefig(folder/name,dpi=140,bbox_inches='tight');plt.close(fig)
         body+='<h2>'+html.escape(str(key))+'</h2><img src="'+name+'">'
+    ngdetail=result['detail'][result['detail']['설비판정(원본)'].eq('NG')]
+    body+='<h2>NG 상세 현황 (앞 500행)</h2><p>원본과 연결되는 전체 행은 상세현황_RAW연결.csv 및 샘플별_예측결과.csv에 저장됩니다.</p>'+styled_details(ngdetail.head(500)).to_html()
     (folder/'배치검사_보고서.html').write_text(body,encoding='utf-8')
     result['zip']=Path(shutil.make_archive(str(folder),'zip',root_dir=folder));return result

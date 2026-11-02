@@ -14,7 +14,7 @@ def build(root, destination):
     assert {s['key'] for s in manifest['sources']}=={'C10A','C80B','crack','shaft'}
     assert len(manifest['sources'])==4
     entries={}
-    names=['00_먼저읽어주세요.txt','01_설치.cmd','02_분석실행.cmd','03_데이터추가_분석.cmd',
+    names=['00_먼저읽어주세요.txt','01_설치.cmd','02_분석실행.cmd',
            'requirements.txt','scripts/setup_windows.ps1','scripts/start_windows.ps1',
            'scripts/add_data_windows.py','.vscode/extensions.json','.vscode/settings.json',
            'notebooks/09_통합테스트_샘플별결과.ipynb']
@@ -45,7 +45,7 @@ def build(root, destination):
 
 01_설치.cmd              처음 한 번 설치 (인터넷 필요)
 02_분석실행.cmd          포함된 실제 데이터로 분석
-03_데이터추가_분석.cmd   새로운 CSV·Excel을 추가해 분석
+새로운 데이터: 분석 화면 ①의 Excel·CSV 선택 버튼으로 추가해 재분석
 
 설치 후 02번 실행 → 브라우저의 Run → Run All Cells → ① 전처리 → ② 학습 → ③ 검사
 이미 학습한 화면에 새 샘플만 넣을 때는 그 화면의 ③ 새 검사 파일 올리기를 사용하세요.
@@ -71,18 +71,18 @@ def build(root, destination):
     entries['notebooks/전체실행_자료.json']=json.dumps(manifest,ensure_ascii=False,indent=2).encode('utf-8')
     try:commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root).decode().strip()
     except (OSError,subprocess.CalledProcessError):commit='local'
-    entries['배포정보.json']=json.dumps({'source_commit':commit,'actual_data_files':hashes,'demo_data_included':False},ensure_ascii=False,indent=2).encode('utf-8')
+    entries['배포정보.json']=json.dumps({'version':'2026-11-02 UI improvement','source_commit':commit,'actual_data_files':hashes,'demo_data_included':False,'models':'Existing RandomForest/XGBoost; no advanced-model research'},ensure_ascii=False,indent=2).encode('utf-8')
     destination.parent.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(destination,'w',compression=zipfile.ZIP_DEFLATED) as archive:
         for name,data in entries.items():archive.writestr('Movenex/'+name,data)
     with zipfile.ZipFile(destination) as archive:
         assert archive.testzip() is None
         names=archive.namelist()
-        assert len([n for n in names if n.endswith('.cmd')])==3
+        assert len([n for n in names if n.endswith('.cmd')])==2
         assert len([n for n in names if n.endswith('.ipynb')])==1
         assert not any('/demo/' in n or '/tests/' in n or '/gpu/' in n or '.jupyter/' in n for n in names)
         for name,digest in hashes.items():assert hashlib.sha256(archive.read('Movenex/'+name)).hexdigest()==digest
-    print('PASS: one private package, three CMDs, one notebook, four actual datasets, no demo assets')
+    print('PASS: one private package, two CMDs, one notebook, four actual datasets, no demo assets')
     print(destination)
     return destination
 

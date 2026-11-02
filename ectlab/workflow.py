@@ -298,7 +298,8 @@ def pca_figure(bundle,key,predictions=None,view_limit='full'):
         part=points[points['판정'].eq(name)]
         total=len(part)
         if name in ('검사기 합격','기준자료 (최대값 0)'):part=part.iloc[evenly_sample(np.arange(total),2000)]
-        if len(part):ax.scatter(part.PC1,part.PC2,c=color,marker=marker,s=140 if name=='MASTER' else 30,alpha=.75,label=f'{name} ({total:,}행)',zorder=5 if name=='MASTER' else 3)
+        priority={'MASTER':8,'기준자료 (최대값 0)':6,'진성불량 의심':7,'가성불량 후보':7,'FN 후보':7,'검사기 합격':2}
+        if len(part):ax.scatter(part.PC1,part.PC2,c=color,marker=marker,s=140 if name=='MASTER' else 30,alpha=.75,label=f'{name} ({total:,}행)',zorder=priority.get(name,4))
     ax.set(title=f'{key[0]} / {key[1]} / 위치 {key[2]}\n{m["model_name"]} · {m["mode"]}\n학습 때 고정한 PCA · 2축 설명 비율 {m["pca"].explained_variance_ratio_.sum():.1%}',xlabel='PC1',ylabel='PC2')
     fig.text(.02,.01,'조회 범위만 적용 · PCA/판정 유지 · OK/기준자료는 최대 2,000점 표시 · 전체 수량은 표/CSV 확인',fontsize=8)
     ax.legend(fontsize=8);ax.grid(alpha=.15);fig.tight_layout(rect=(0,.035,1,1));return fig

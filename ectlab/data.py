@@ -24,7 +24,7 @@ def signature(values, skip=(2,)):
     text = '\x1f'.join(format(v,'.12g') if isinstance(v,(float,int,np.number)) else str(v) for i,v in enumerate(values) if i not in skip)
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
-def read_workbook(path, show_progress=False):
+def read_workbook(path, show_progress=False, on_progress=None):
     """Read the supplied 106-column workbook including fills, without Excel or macros.
 
     This adapter is specific to the supplied two-header-row ECT template. A different
@@ -72,7 +72,9 @@ def read_workbook(path, show_progress=False):
                                             yellow_any=bool(marks['yellow']), **{k+'_cells':','.join(sorted(v)) for k,v in marks.items()}))
                 row.clear()
                 while row.getprevious() is not None: del row.getparent()[0]
-            if show_progress: print(f'  {sh.get("name")} 시트: {len(records)-sheet_start:,}행 읽음',flush=True)
+            progress=f'  {sh.get("name")} 시트: {len(records)-sheet_start:,}행 읽음'
+            if show_progress:print(progress,flush=True)
+            if on_progress:on_progress(progress)
     df = pd.DataFrame(records)
     if df.empty: raise ValueError(f'측정 데이터가 없습니다: {path.name}')
     for col in ['orange_cells','bright_orange_cells','green_cells','gray_cells']:

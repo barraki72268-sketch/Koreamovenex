@@ -69,7 +69,9 @@ def read_groups(path,profile,root,training=False,day_start=6,on_progress=None):
         raw=pd.read_csv(path,dtype={'source_sheet':str},low_memory=False)
         vector=any(c.startswith('feature__') for c in raw.columns)
     elif path.suffix.lower()=='.xlsx' and profile=='c10':
-        raw=read_workbook(path);raw['field_label']=raw.apply(company_label,axis=1)
+        raw=read_workbook(path,on_progress=on_progress)
+        if on_progress:on_progress('외륜 열처리 Excel의 판정 표시를 확인하는 중입니다.')
+        raw['field_label']=raw.apply(company_label,axis=1)
     elif path.suffix.lower()=='.xlsx':
         from ectlab import delivery_excel as converter
         digest=file_hash(path);code=file_hash(Path(converter.__file__))
@@ -116,7 +118,9 @@ def read_groups(path,profile,root,training=False,day_start=6,on_progress=None):
         if missing:raise ValueError('선택한 자료 종류와 파일 형식이 다릅니다: '+', '.join(sorted(missing)))
     raw=raw.copy();raw['_input_order']=np.arange(len(raw))
     groups={}
-    for key,g in raw.groupby(['line','product','position'] if vector or profile=='c10' else ['c3','c4','c6'],sort=False,dropna=False):
+    grouped=raw.groupby(['line','product','position'] if vector or profile=='c10' else ['c3','c4','c6'],sort=False,dropna=False)
+    for number,(key,g) in enumerate(grouped,1):
+        if on_progress:on_progress(f'측정행 정리 중 · {number}/{grouped.ngroups} · {key[0]} / {key[1]} / 위치 {key[2]}')
         g=g.reset_index(drop=True).copy()
         if vector:
             cols=[c for c in g if c.startswith('feature__')];features=[c[len('feature__'):] for c in cols]
@@ -137,6 +141,10 @@ def read_groups(path,profile,root,training=False,day_start=6,on_progress=None):
             frame,descriptors=feature_frame(g,profile);features=list(frame);X=frame.to_numpy(float)
             rows=_meta(g,profile)
         rows=rows.reset_index(drop=True)
+        if profile!='shaft':
+            measurement=[i for i,f in enumerate(descriptors) if f['axis'] in ('측정값','vector')]
+            error100=pd.to_numeric(rows.max_value,errors='coerce').eq(100).to_numpy() | np.isclose(X[:,measurement],100,rtol=0,atol=1e-9).any(axis=1)
+            rows.loc[error100&rows.reason.eq(''),'reason']='검출값 100: 측정 오류'
         rows['order']=g['_input_order'].to_numpy()
         rows['signature']=[signature(row,x) for (_,row),x in zip(rows.iterrows(),X)]
         groupkey=(str(key[0]),str(key[1]),int(key[2]))
@@ -154,14 +162,15 @@ def prepare_training(path,profile,root,drop_saturation=None,train_end='',day_sta
             dates=pd.to_datetime(rows.date,errors='coerce')
             if dates.isna().any():raise ValueError('학습 종료일을 쓰려면 모든 행의 날짜가 필요합니다.')
             selected=(dates<=pd.Timestamp(train_end)).to_numpy()
-        valid=selected&rows.reason.eq('').to_numpy()&np.isfinite(X).all(axis=1)
+        eligible=selected&rows.reason.eq('').to_numpy()
         mask=np.ones(X.shape[1],bool)
-        if drop_saturation and valid.any():
+        if drop_saturation and eligible.any():
             badslots=set()
             for i,f in enumerate(g['descriptors']):
-                v=X[valid,i]
+                v=X[eligible,i]
                 if np.isclose(np.abs(v),32767,rtol=0,atol=1e-9).any() or (f['axis'] in ('측정값','vector') and np.isclose(v,100,rtol=0,atol=1e-9).any()):badslots.add(f['slot'])
             mask=np.array([f['slot'] not in badslots for f in g['descriptors']])
+        valid=eligible&np.isfinite(X[:,mask]).all(axis=1)&mask.any()
         g.update(selected=selected,valid=valid,mask=mask)
         summary.append({'라인':key[0],'품번':key[1],'위치':key[2],'전체행':len(rows),'학습기간행':int(selected.sum()),'유효행':int(valid.sum()),'MASTER':int((valid&rows.master).sum()),'기업진성':int((valid&rows.label.eq('true')).sum()),'기업가성':int((valid&rows.label.eq('false')).sum()),'원본입력수':X.shape[1],'사용입력수':int(mask.sum()),'제외입력':', '.join(np.asarray(g['features'])[~mask])})
     if file_hash(path)!=digest:raise ValueError('파일이 읽는 중 변경됐습니다. ①번부터 다시 실행하세요.')
@@ -303,7 +312,7 @@ def predict_file(bundle,path,root,on_progress=None):
     return {'rows':rows,'summary':summary,'ng_summary':ng,'detail':detail,'folder':folder,'record':record}
 
 
-def pca_figure(bundle,key,predictions=None,view_limit='full'):
+def pca_figure(bundle,key,predictions=None,view_limit='full',inspection_date=None):
     import matplotlib.pyplot as plt
     from ectlab.plots import style
     from ectlab.company_results import classify_rows,view_mask,STYLES
@@ -314,6 +323,7 @@ def pca_figure(bundle,key,predictions=None,view_limit='full'):
         unknown=points.equipment_label.eq('NG')&~points.master&~points.max_value.eq(0)&points.label.eq('unknown')
         points.loc[unknown,'판정']='NG 미판정'
     else:
+        if inspection_date is not None:r=r[r.calendar_date.astype(str).eq(inspection_date)]
         background=r[view_mask(r,view_limit)]
         ax.scatter(background.PC1,background.PC2,c='#b5bec7',s=10,alpha=.12,label='고정된 학습 분포')
         points=classify_rows(predictions)
@@ -324,9 +334,12 @@ def pca_figure(bundle,key,predictions=None,view_limit='full'):
         if name in ('검사기 합격','기준자료 (최대값 0)'):part=part.iloc[evenly_sample(np.arange(total),2000)]
         priority={'MASTER':8,'기준자료 (최대값 0)':6,'진성불량 의심':7,'가성불량 후보':7,'FN 후보':7,'검사기 합격':2}
         if len(part):ax.scatter(part.PC1,part.PC2,c=color,marker=marker,s=140 if name=='MASTER' else 30,alpha=.75,label=f'{name} ({total:,}행)',zorder=priority.get(name,4))
-    ax.set(title=f'{key[0]} / {key[1]} / 위치 {key[2]}\n{m["model_name"]} · {m["mode"]}\n학습 때 고정한 PCA · 2축 설명 비율 {m["pca"].explained_variance_ratio_.sum():.1%}',xlabel='PC1',ylabel='PC2')
-    fig.text(.02,.01,'조회 범위만 적용 · PCA/판정 유지 · OK/기준자료는 최대 2,000점 표시 · 전체 수량은 표/CSV 확인',fontsize=8)
-    ax.legend(fontsize=8);ax.grid(alpha=.15);fig.tight_layout(rect=(0,.035,1,1));return fig
+    date_title=f' / {inspection_date}' if inspection_date is not None else ''
+    ax.set(title=f'{key[0]} / {key[1]} / 위치 {key[2]}{date_title}\n{m["model_name"]} · {m["mode"]}\n학습 때 고정한 PCA · 2축 설명 비율 {m["pca"].explained_variance_ratio_.sum():.1%}',xlabel='PC1',ylabel='PC2')
+    if points.empty:ax.text(.5,.5,'이 조회 조건에서 표시할 PCA 좌표가 없습니다.',ha='center',transform=ax.transAxes)
+    fig.text(.02,.01,'조회 범위만 적용 · 샤프트 MASTER는 범위 밖도 표시 · OK/기준자료 최대 2,000점 · 전체 수량은 표/CSV 확인',fontsize=8)
+    if ax.get_legend_handles_labels()[0]:ax.legend(fontsize=8)
+    ax.grid(alpha=.15);fig.tight_layout(rect=(0,.035,1,1));return fig
 
 
 def export_prediction(bundle,result):

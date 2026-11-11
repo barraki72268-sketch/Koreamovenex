@@ -34,8 +34,10 @@ def classify_rows(frame):
 def view_mask(rows,limit='all'):
     maximum=pd.to_numeric(rows.get('max_value',pd.Series(np.nan,index=rows.index)),errors='coerce')
     if limit=='full':return pd.Series(True,index=rows.index)
-    if limit=='all':return ~maximum.eq(100)
-    return maximum.between(0,float(limit),inclusive='both')
+    visible=~maximum.eq(100) if limit=='all' else maximum.between(0,float(limit),inclusive='both')
+    if 'profile' in rows and 'master' in rows:
+        visible |= rows.profile.eq('shaft') & rows.master & rows.equipment_label.eq('NG')
+    return visible
 
 
 def ng_summary(bundle,rows,limit='full'):

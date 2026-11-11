@@ -58,9 +58,11 @@ def build(root, destination):
 
 사용설명서.html을 브라우저에서 열면 설치·실행 방법을 볼 수 있습니다.
 
-2026-11-02 UI 개선
+2026-11-09 회사 피드백 반영
   그래프 색/모양 구분, 원본 NG 합계 검증, RAW 연결 상세 표와 CSV 저장
-  검출값 0~5 / 0~10 / 0~20 / 전체(100 제외) 조회 범위
+  라인·품번·위치와 검사일자에 맞춰 그래프와 표를 함께 조회
+  검출값 0~5 / 0~10 / 0~20 / 0~99 / 전체 조회 범위
+  샤프트는 포화 주파수만 제외하고, 남은 입력이 유효한 MASTER 유지
   Windows 기본 파일 선택 및 전체 경로 입력 지원
   조회 범위는 표시 조건이며 학습·판정 변경이나 모델 고도화가 아닙니다.
 
@@ -85,7 +87,7 @@ TabICLv2 추가 비교
     entries['notebooks/전체실행_자료.json']=json.dumps(manifest,ensure_ascii=False,indent=2).encode('utf-8')
     try:commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root).decode().strip()
     except (OSError,subprocess.CalledProcessError):commit='local'
-    entries['배포정보.json']=json.dumps({'version':'2026-11-02 UI and optional TabICLv2','source_commit':commit,'actual_data_files':hashes,'demo_data_included':False,'models':'RandomForest/XGBoost + optional official pretrained TabICLv2; no fine-tuning'},ensure_ascii=False,indent=2).encode('utf-8')
+    entries['배포정보.json']=json.dumps({'version':'2026-11-09 company feedback update','source_commit':commit,'includes_uncommitted_changes':bool(subprocess.run(['git','diff','--quiet','HEAD'],cwd=root).returncode) if commit!='local' else None,'actual_data_files':hashes,'demo_data_included':False,'models':'RandomForest/XGBoost + optional official pretrained TabICLv2; no fine-tuning'},ensure_ascii=False,indent=2).encode('utf-8')
     destination.parent.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(destination,'w',compression=zipfile.ZIP_DEFLATED) as archive:
         for name,data in entries.items():archive.writestr('Movenex/'+name,data)

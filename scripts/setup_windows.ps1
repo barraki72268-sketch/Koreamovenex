@@ -25,6 +25,10 @@ function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "실행 실패 ($LASTEXITCODE): $Program" }
 }
 
+function Install-Packages([string]$Interpreter, [string[]]$Arguments) {
+    Invoke-Checked $Interpreter (@('-m','pip','install','--disable-pip-version-check','--timeout','60','--retries','5') + $Arguments)
+}
+
 function Test-Python([string]$Candidate) {
     if (-not $Candidate -or -not (Test-Path -LiteralPath $Candidate -PathType Leaf)) { return $false }
     $ErrorActionPreference = 'Continue'
@@ -155,14 +159,15 @@ try {
     if (-not (Test-Path -LiteralPath $envPython)) { Invoke-Checked $python @('-m','venv',$environment) }
     if (-not (Test-Python $envPython)) { throw '기존 실행 환경이 Python 3.12 64비트가 아닙니다. 기존 폴더를 보존한 상태에서 담당자에게 문의하세요.' }
     Write-Host '[3/5] Jupyter와 분석 패키지 설치 (인터넷 필요)'
-    Invoke-Checked $envPython @('-m','pip','install','--disable-pip-version-check','-r',(Join-Path $root 'requirements.txt'))
+    Write-Host "다운로드 및 설치에 시간이 걸릴 수 있습니다. 완료 안내까지 창을 열어 두세요. 로그: $log"
+    Install-Packages $envPython @('-r',(Join-Path $root 'requirements.txt'))
     Invoke-Checked $envPython @('-m','pip','check')
     $tabiclStatus='not_selected'
     if ($WithTabICL) {
         Write-Host 'TabICLv2 선택 설치: 공식 PyTorch CPU 패키지와 공식 모델 파일 준비'
         try {
-            Invoke-Checked $envPython @('-m','pip','install','--disable-pip-version-check','--index-url','https://download.pytorch.org/whl/cpu','torch==2.14.1')
-            Invoke-Checked $envPython @('-m','pip','install','--disable-pip-version-check','-c',(Join-Path $root 'requirements.txt'),'-r',(Join-Path $root 'requirements-tabicl-windows.txt'))
+            Install-Packages $envPython @('--index-url','https://download.pytorch.org/whl/cpu','torch==2.14.1')
+            Install-Packages $envPython @('-c',(Join-Path $root 'requirements.txt'),'-r',(Join-Path $root 'requirements-tabicl-windows.txt'))
             Invoke-Checked $envPython @((Join-Path $root 'scripts/prepare_tabicl_windows.py'))
             Invoke-Checked $envPython @('-m','pip','check')
             $tabiclStatus='ready'

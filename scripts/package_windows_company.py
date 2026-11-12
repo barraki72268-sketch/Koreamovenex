@@ -58,7 +58,9 @@ def build(root, destination):
 
 사용설명서.html을 브라우저에서 열면 설치·실행 방법을 볼 수 있습니다.
 
-2026-11-09 회사 피드백 반영
+2026-11-12 화면 표시 오류 수정
+  분석 대상·파일 선택·조회 항목이 함께 숨겨지던 배치 설정 오류 수정
+  샤프트 선택 시 포화 주파수 제외 체크박스 표시
   그래프 색/모양 구분, 원본 NG 합계 검증, RAW 연결 상세 표와 CSV 저장
   라인·품번·위치와 검사일자에 맞춰 그래프와 표를 함께 조회
   검출값 0~5 / 0~10 / 0~20 / 0~99 / 전체 조회 범위
@@ -87,7 +89,7 @@ TabICLv2 추가 비교
     entries['notebooks/전체실행_자료.json']=json.dumps(manifest,ensure_ascii=False,indent=2).encode('utf-8')
     try:commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root).decode().strip()
     except (OSError,subprocess.CalledProcessError):commit='local'
-    entries['배포정보.json']=json.dumps({'version':'2026-11-09 company feedback update','source_commit':commit,'includes_uncommitted_changes':bool(subprocess.run(['git','diff','--quiet','HEAD'],cwd=root).returncode) if commit!='local' else None,'actual_data_files':hashes,'demo_data_included':False,'models':'RandomForest/XGBoost + optional official pretrained TabICLv2; no fine-tuning'},ensure_ascii=False,indent=2).encode('utf-8')
+    entries['배포정보.json']=json.dumps({'version':'2026-11-12 visibility fix','source_commit':commit,'includes_uncommitted_changes':bool(subprocess.run(['git','diff','--quiet','HEAD'],cwd=root).returncode) if commit!='local' else None,'actual_data_files':hashes,'demo_data_included':False,'models':'RandomForest/XGBoost + optional official pretrained TabICLv2; no fine-tuning'},ensure_ascii=False,indent=2).encode('utf-8')
     destination.parent.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(destination,'w',compression=zipfile.ZIP_DEFLATED) as archive:
         for name,data in entries.items():archive.writestr('Movenex/'+name,data)

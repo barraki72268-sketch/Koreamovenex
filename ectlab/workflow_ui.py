@@ -31,32 +31,32 @@ def show_workflow_app(root):
     import matplotlib.pyplot as plt
     root=Path(root);upload=root/'notebooks/학습검사_업로드';upload.mkdir(parents=True,exist_ok=True)
     state={'prepared':None,'bundle':None,'result':None,'busy':False,'refreshing':False}
-    wide=w.Layout(width='98%');labelstyle={'description_width':'150px'}
-    family=w.Dropdown(options=[('외륜 열처리','c10'),('외륜 크랙','crack'),('샤프트 열처리','shaft')],description='분석 대상:',style=labelstyle,layout=wide)
-    train=w.Dropdown(options=[('선택 안 함','')],description='학습 파일:',style=labelstyle,layout=wide)
-    test=w.Dropdown(options=[('선택 안 함','')],description='검사 파일:',style=labelstyle,layout=wide)
-    drop=w.Checkbox(value=False,description='샤프트 포화 주파수 제외 (권장)',layout=wide)
+    labelstyle={'description_width':'150px'}
+    family=w.Dropdown(options=[('외륜 열처리','c10'),('외륜 크랙','crack'),('샤프트 열처리','shaft')],description='분석 대상:',style=labelstyle,layout=w.Layout(width='98%'))
+    train=w.Dropdown(options=[('선택 안 함','')],description='학습 파일:',style=labelstyle,layout=w.Layout(width='98%'))
+    test=w.Dropdown(options=[('선택 안 함','')],description='검사 파일:',style=labelstyle,layout=w.Layout(width='98%'))
+    drop=w.Checkbox(value=False,description='샤프트 포화 주파수 제외 (권장)',layout=w.Layout(width='98%'))
     drop.layout.display='none'
-    end=w.Text(description='학습 종료일:',placeholder='빈칸이면 선택 파일 전체 / 예: 2026-10-20',style=labelstyle,layout=wide)
+    end=w.Text(description='학습 종료일:',placeholder='빈칸이면 선택 파일 전체 / 예: 2026-10-20',style=labelstyle,layout=w.Layout(width='98%'))
     boundary=w.BoundedIntText(value=6,min=0,max=23,description='크랙 검사일 시작:',style=labelstyle)
-    model=w.Dropdown(options=[('Random Forest (기본)','RandomForest'),('XGBoost','XGBoost'),('TabICLv2 (선택 설치 · CPU 비교)','TabICLv2')],description='학습 모델:',style=labelstyle,layout=wide)
+    model=w.Dropdown(options=[('Random Forest (기본)','RandomForest'),('XGBoost','XGBoost'),('TabICLv2 (선택 설치 · CPU 비교)','TabICLv2')],description='학습 모델:',style=labelstyle,layout=w.Layout(width='98%'))
     modelnote=w.HTML()
-    tabicl_all_ok=w.Checkbox(value=False,description='TabICLv2로 OK도 전수 평가 (매우 느림)',layout=wide)
+    tabicl_all_ok=w.Checkbox(value=False,description='TabICLv2로 OK도 전수 평가 (매우 느림)',layout=w.Layout(width='98%'))
     low=w.BoundedFloatText(value=90,min=0,max=100,step=1,description='가성 후보 (%)',style=labelstyle)
     high=w.BoundedFloatText(value=90,min=0,max=100,step=1,description='진성 의심 (%)',style=labelstyle)
     first=w.Button(description='① 데이터 읽기 · 전처리',button_style='primary',icon='file',layout=w.Layout(width='270px',height='44px'))
     second=w.Button(description='② 모델 학습',button_style='success',icon='cogs',disabled=True,layout=w.Layout(width='270px',height='44px'))
     third=w.Button(description='③ 새 샘플 배치 검사',button_style='primary',icon='play',disabled=True,layout=w.Layout(width='270px',height='44px'))
     s1=w.HTML();s2=w.HTML();s3=w.HTML();out1=w.Output();out2=w.Output();out3=w.Output();trainplot=w.Output();testplot=w.Output();sampletable=w.Output()
-    learned=w.Dropdown(description='학습 PCA:',options=[],style=labelstyle,layout=wide)
-    tested=w.Dropdown(description='라인 / 품번 / 위치:',options=[],style=labelstyle,layout=wide)
-    inspection_date=w.Dropdown(description='검사일자:',options=[('전체 일자',None)],style=labelstyle,layout=wide)
+    learned=w.Dropdown(description='학습 PCA:',options=[],style=labelstyle,layout=w.Layout(width='98%'))
+    tested=w.Dropdown(description='라인 / 품번 / 위치:',options=[],style=labelstyle,layout=w.Layout(width='98%'))
+    inspection_date=w.Dropdown(description='검사일자:',options=[('전체 일자',None)],style=labelstyle,layout=w.Layout(width='98%'))
     kind=w.Dropdown(description='결과 보기:',options=['전체','불량 의심 · FN 후보','진성불량 의심','가성불량 후보','판정 보류','입력 확인 필요','정상 유사'])
-    search=w.Text(description='샘플 검색:',placeholder='샘플ID / 날짜 / 판정 검색',layout=wide)
+    search=w.Text(description='샘플 검색:',placeholder='샘플ID / 날짜 / 판정 검색',layout=w.Layout(width='98%'))
     page=w.BoundedIntText(value=1,min=1,max=1,description='페이지:')
     pasted=w.Textarea(description='벡터 CSV:',placeholder='선택 사항: 학습 후 내려받은 벡터 입력 양식과 같은 헤더/행을 붙여넣습니다.',layout=w.Layout(width='98%',height='110px'),style=labelstyle)
     modeldownload=w.HTML();resultdownload=w.HTML()
-    view=w.Dropdown(options=[('전체 (100 포함)','full'),('0 ~ 5',5),('0 ~ 10',10),('0 ~ 20',20),('0 ~ 99',99),('전체 (100 제외)','all')],value='full',description='검출값 조회 범위:',style=labelstyle,layout=wide)
+    view=w.Dropdown(options=[('전체 (100 포함)','full'),('0 ~ 5',5),('0 ~ 10',10),('0 ~ 20',20),('0 ~ 99',99),('전체 (100 제외)','all')],value='full',description='검출값 조회 범위:',style=labelstyle,layout=w.Layout(width='98%'))
     kind.options=['NG 전체 (MASTER 포함)','전체','MASTER','진성불량 의심','가성불량 후보','기준자료 (최대값 0)','검사기 합격','FN 후보','보류','입력 확인 필요']
     kind.value='NG 전체 (MASTER 포함)'
     files_refresh=w.Button(description='파일 목록 새로고침',icon='refresh')
@@ -231,7 +231,7 @@ def show_workflow_app(root):
     refresh();invalidate()
     advanced=w.Accordion(children=[w.VBox([end,boundary])]);advanced.set_title(0,'필요할 때만: 학습 기간 · 크랙 검사일 기준');advanced.selected_index=None
     vector=w.Accordion(children=[pasted]);vector.set_title(0,'선택 사항: 벡터 CSV를 붙여넣어 검사');vector.selected_index=None
-    app=w.VBox([w.HTML('<div style="background:#17354b;color:white;padding:20px;border-radius:10px"><h2 style="color:white">학습하고, 새 샘플을 반복 검사하기</h2><p>① 학습 데이터 준비 → ② 모델 학습 → ③ 새 샘플 배치 검사 반복</p><small>회사 피드백 반영판 · 2026-11-09</small></div>'),
+    app=w.VBox([w.HTML('<div style="background:#17354b;color:white;padding:20px;border-radius:10px"><h2 style="color:white">학습하고, 새 샘플을 반복 검사하기</h2><p>① 학습 데이터 준비 → ② 모델 학습 → ③ 새 샘플 배치 검사 반복</p><small>화면 표시 수정판 · 2026-11-12</small></div>'),
         w.HTML('<h3>① 학습 데이터 넣기</h3><p>자료 종류를 고른 뒤 학습 파일을 올리거나 파일 목록에서 선택하세요. Windows에서는 이 PC의 파일 선택 창을 사용합니다. 창이 열리지 않으면 파일 전체 경로를 붙여넣어 추가하세요.</p>'),family,upload_train,train,files_refresh,drop,advanced,first,s1,out1,
         w.HTML('<h3>② 모델 학습하기</h3><p>③에서는 여기서 선택해 준비한 모델을 사용합니다. 유사점수 기준은 이번 실행의 모든 품번에 적용됩니다. 품번별 기준을 적용하려면 해당 품번 자료를 따로 실행하세요. 기준을 바꾸면 ②를 다시 누르세요.</p>'),model,modelnote,tabicl_all_ok,w.HBox([low,high],layout=w.Layout(flex_flow='row wrap')),second,s2,out2,learned,trainplot,modeldownload,
         w.HTML('<h3>③ NG 판정 결과 및 상세 현황</h3><p>현재 파일은 ③번만 눌러 결과를 확인합니다. 다음 파일은 새로 선택해 ③번만 반복할 수 있습니다. 보라 별: MASTER / 초록 원: 최대값0 / 파랑 원: 검사기 합격 / 빨강: 진성 의심 / 주황: 가성 후보.</p>'),upload_test,test,vector,third,s3,

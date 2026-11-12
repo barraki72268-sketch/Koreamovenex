@@ -1,6 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
-import tempfile,unittest
+import tempfile,unittest,hashlib
 from unittest.mock import patch
 import numpy as np,pandas as pd,joblib
 from ectlab.company_results import classify_rows,ng_summary,detail_table,view_mask
@@ -10,6 +10,27 @@ from scripts.make_delivery_demo import make_workbook
 
 
 class CompanyResultsTests(unittest.TestCase):
+    def test_renamed_excel_reuses_cache_and_keeps_current_source_filename(self):
+        from ectlab import delivery_excel
+        from ectlab.data import file_hash
+        for profile in ('shaft','crack'):
+            with self.subTest(profile=profile),tempfile.TemporaryDirectory() as temp:
+                root=Path(temp)
+                first=make_workbook(root/'first.xlsx',profile)
+                train=read_groups(first,profile,root,training=True)
+                cache_root=root/'data/processed/새Excel_변환캐시'
+                current=next(cache_root.iterdir())
+                legacy_key=hashlib.sha256((profile+file_hash(first)+first.name+file_hash(Path(delivery_excel.__file__))).encode()).hexdigest()
+                current.rename(cache_root/legacy_key)
+                second=root/'uploaded_again.xlsx';second.write_bytes(first.read_bytes())
+                with patch('ectlab.delivery_excel.convert_workbook',side_effect=AssertionError('Same Excel bytes reparsed')):
+                    result=read_groups(second,profile,root,training=False)
+                    again=read_groups(second,profile,root,training=False)
+                for key,g in result.items():
+                    np.testing.assert_equal(g['X'],train[key]['X'])
+                    self.assertTrue(g['rows'].source_file.eq(second.name).all())
+                    self.assertEqual(len(again[key]['rows']),len(g['rows']))
+
     def test_repeated_excel_read_uses_verified_cache(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);p=make_workbook(root/'crack.xlsx','crack')

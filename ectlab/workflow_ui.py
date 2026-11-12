@@ -195,10 +195,13 @@ def show_workflow_app(root):
         if bundle is None:return
         if not test.value and not pasted.value.strip():s3.value='<p>검사할 새 파일을 고르거나 벡터 CSV를 붙여넣으세요.</p>';return
         reset_test();busy(True);s3.value=f'<p>{html.escape(bundle["model_name"])} 모델로 배치 검사 중입니다.</p>'
+        def progress(text):
+            s3.value='<p style="background:#fff3dc;padding:12px">처리 중 · 파일 선택은 완료 후 다시 사용할 수 있습니다.<br>'+html.escape(text)+'</p>'
+        progress('검사 파일을 확인하고 있습니다.')
         try:
             path=Path(test.value) if test.value else None
             if pasted.value.strip():path=upload/('벡터배치_'+uuid.uuid4().hex[:8]+'.csv');path.write_text(pasted.value.strip()+'\n',encoding='utf-8-sig')
-            result=export_prediction(bundle,predict_file(bundle,path,root,on_progress=lambda text:setattr(s3,'value','<p>'+html.escape(text)+'</p>')));state['result']=result
+            result=export_prediction(bundle,predict_file(bundle,path,root,on_progress=progress),on_progress=progress);state['result']=result
             rows=result['rows'];options=[]
             for k in rows[['line','product','position']].drop_duplicates().itertuples(index=False,name=None):
                 options.append((f'{k[0]} / {k[1]} / 위치 {k[2]}',k))
@@ -231,10 +234,10 @@ def show_workflow_app(root):
     refresh();invalidate()
     advanced=w.Accordion(children=[w.VBox([end,boundary])]);advanced.set_title(0,'필요할 때만: 학습 기간 · 크랙 검사일 기준');advanced.selected_index=None
     vector=w.Accordion(children=[pasted]);vector.set_title(0,'선택 사항: 벡터 CSV를 붙여넣어 검사');vector.selected_index=None
-    app=w.VBox([w.HTML('<div style="background:#17354b;color:white;padding:20px;border-radius:10px"><h2 style="color:white">학습하고, 새 샘플을 반복 검사하기</h2><p>① 학습 데이터 준비 → ② 모델 학습 → ③ 새 샘플 배치 검사 반복</p><small>화면 표시 수정판 · 2026-11-12</small></div>'),
+    app=w.VBox([w.HTML('<div style="background:#17354b;color:white;padding:20px;border-radius:10px"><h2 style="color:white">학습하고, 새 샘플을 반복 검사하기</h2><p>① 학습 데이터 준비 → ② 모델 학습 → ③ 새 샘플 배치 검사 반복</p><small>샤프트 검사 진행 개선판 · 2026-11-12 v2</small></div>'),
         w.HTML('<h3>① 학습 데이터 넣기</h3><p>자료 종류를 고른 뒤 학습 파일을 올리거나 파일 목록에서 선택하세요. Windows에서는 이 PC의 파일 선택 창을 사용합니다. 창이 열리지 않으면 파일 전체 경로를 붙여넣어 추가하세요.</p>'),family,upload_train,train,files_refresh,drop,advanced,first,s1,out1,
         w.HTML('<h3>② 모델 학습하기</h3><p>③에서는 여기서 선택해 준비한 모델을 사용합니다. 유사점수 기준은 이번 실행의 모든 품번에 적용됩니다. 품번별 기준을 적용하려면 해당 품번 자료를 따로 실행하세요. 기준을 바꾸면 ②를 다시 누르세요.</p>'),model,modelnote,tabicl_all_ok,w.HBox([low,high],layout=w.Layout(flex_flow='row wrap')),second,s2,out2,learned,trainplot,modeldownload,
-        w.HTML('<h3>③ NG 판정 결과 및 상세 현황</h3><p>현재 파일은 ③번만 눌러 결과를 확인합니다. 다음 파일은 새로 선택해 ③번만 반복할 수 있습니다. 보라 별: MASTER / 초록 원: 최대값0 / 파랑 원: 검사기 합격 / 빨강: 진성 의심 / 주황: 가성 후보.</p>'),upload_test,test,vector,third,s3,
+        w.HTML('<h3>③ NG 판정 결과 및 상세 현황</h3><p>현재 파일은 ③번만 눌러 결과를 확인합니다. 처리 중에는 파일 선택이 잠기며 아래 진행 문구가 바뀝니다. 완료 후 다음 파일을 넣어 ③번만 반복할 수 있습니다. 보라 별: MASTER / 초록 원: 최대값0 / 파랑 원: 검사기 합격 / 빨강: 진성 의심 / 주황: 가성 후보.</p>'),s3,upload_test,test,vector,third,
         w.HTML('<p>라인·품번·위치와 검사일자를 고르면 그래프와 표가 함께 바뀝니다. 검출값 범위는 표시할 행을 좁힙니다. 샤프트 MASTER는 범위 밖이어도 표시하며, ZIP에는 전체 검사 결과를 저장합니다.</p>'),tested,inspection_date,view,out3,testplot,w.HBox([kind,page]),search,sampletable,resultdownload])
     display(app);display(upload_train.javascript('notebooks/학습검사_업로드'));display(upload_test.javascript('notebooks/학습검사_업로드'))
     return {'app':app,'state':state,'family':family,'train':train,'test':test,'prepare':first,'fit':second,'predict':third,'status':[s1,s2,s3],'model':model,'modelnote':modelnote,'tabicl_all_ok':tabicl_all_ok,'drop':drop,'end':end,'pasted':pasted,'learned':learned,'tested':tested,'upload_train':upload_train,'upload_test':upload_test,'view':view,'kind':kind,'group':tested,'inspection_date':inspection_date,'low':low,'high':high}

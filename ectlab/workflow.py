@@ -60,6 +60,17 @@ def _meta(g,profile,legacy=False):
     return r
 
 
+def _verified_excel_cache(folder,profile,digest):
+    try:
+        info=json.loads((folder/'cache.json').read_text(encoding='utf-8'))
+        if not isinstance(info,dict) or not isinstance(info.get('files'),dict):return False
+        expected={profile+suffix for suffix in ('_raw.csv.gz','_schema.json','_inventory.json')}
+        return info.get('source_sha256')==digest and set(info.get('files',{}))==expected and all(
+            (folder/name).is_file() and file_hash(folder/name)==value for name,value in info['files'].items())
+    except (OSError,ValueError,TypeError):
+        return False
+
+
 def read_groups(path,profile,root,training=False,day_start=6,on_progress=None):
     """Supported native files or the exported feature-vector CSV format."""
     path=Path(path);root=Path(root)
@@ -75,13 +86,21 @@ def read_groups(path,profile,root,training=False,day_start=6,on_progress=None):
     elif path.suffix.lower()=='.xlsx':
         from ectlab import delivery_excel as converter
         digest=file_hash(path);code=file_hash(Path(converter.__file__))
-        key=hashlib.sha256((profile+digest+path.name+code).encode()).hexdigest()
-        existing=root/'data/processed/새Excel_변환캐시'/key
-        good=False
-        if (existing/'cache.json').is_file():
-            info=json.loads((existing/'cache.json').read_text(encoding='utf-8'))
-            good=info.get('source_sha256')==digest and len(info.get('files',{}))==3 and all((existing/n).is_file() and file_hash(existing/n)==h for n,h in info['files'].items())
-        if good:csv=existing/(profile+'_raw.csv.gz')
+        cache_root=root/'data/processed/새Excel_변환캐시'
+        key=hashlib.sha256((profile+digest+code).encode()).hexdigest()
+        existing=cache_root/key
+        # Older versions included the upload filename in the cache key.
+        if not existing.exists():
+            for legacy in cache_root.iterdir() if cache_root.exists() else []:
+                if not legacy.is_dir() or not _verified_excel_cache(legacy,profile,digest):continue
+                schema=json.loads((legacy/(profile+'_schema.json')).read_text(encoding='utf-8'))
+                old_key=hashlib.sha256((profile+digest+str(schema.get('source',''))+code).encode()).hexdigest()
+                if legacy.name!=old_key:continue
+                shutil.copytree(legacy,existing,dirs_exist_ok=True)
+                break
+        if _verified_excel_cache(existing,profile,digest):
+            if on_progress:on_progress('같은 내용의 Excel 변환 결과를 재사용하는 중입니다.')
+            csv=existing/(profile+'_raw.csv.gz')
         else:
             folder=new_folder(root,'입력변환');csv=converter.convert_workbook(profile,path,folder,on_progress=on_progress)
             if file_hash(path)!=digest:raise ValueError('Excel이 읽는 중 변경됐습니다. 파일을 저장한 뒤 다시 선택하세요.')
@@ -93,6 +112,7 @@ def read_groups(path,profile,root,training=False,day_start=6,on_progress=None):
             (existing/'cache.json').write_text(json.dumps({'source_sha256':digest,'files':cached},ensure_ascii=False),encoding='utf-8')
             csv=existing/(profile+'_raw.csv.gz')
         raw=pd.read_csv(csv,dtype={'source_sheet':str},low_memory=False)
+        raw['source_file']=path.name
     else:raise ValueError('지원하는 .xlsx / .csv / .csv.gz를 사용하세요.')
     if vector:
         required={'sample_id','line','product','position','equipment_label'}
@@ -296,6 +316,7 @@ def predict_file(bundle,path,root,on_progress=None):
     groups=read_groups(path,bundle['profile'],root,training=False,day_start=bundle['day_start'],on_progress=on_progress)
     rows=predict_groups(bundle,groups,on_progress=on_progress)
     folder=Path(bundle['folder'])/'검사결과'/datetime.now().strftime('%Y%m%d_%H%M%S_%f');folder.mkdir(parents=True)
+    if on_progress:on_progress('전체 샘플의 판정 결과를 CSV로 저장하는 중입니다.')
     rows.to_csv(folder/'샘플별_예측결과.csv',index=False,encoding='utf-8-sig')
     summary=rows.groupby(['line','product','position','예측'],dropna=False).size().rename('수량').reset_index()
     summary.to_csv(folder/'배치_판정요약.csv',index=False,encoding='utf-8-sig')
@@ -342,7 +363,7 @@ def pca_figure(bundle,key,predictions=None,view_limit='full',inspection_date=Non
     ax.grid(alpha=.15);fig.tight_layout(rect=(0,.035,1,1));return fig
 
 
-def export_prediction(bundle,result):
+def export_prediction(bundle,result,on_progress=None):
     import matplotlib.pyplot as plt
     import html
     from ectlab.company_results import ng_summary,detail_table,styled_details
@@ -350,6 +371,7 @@ def export_prediction(bundle,result):
     result.setdefault('detail',detail_table(result['rows']))
     folder=result['folder'];body='<html lang="ko"><meta charset="utf-8"><title>배치 검사 결과</title><style>body{font:16px/1.8 sans-serif;margin:24px}img{max-width:100%}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px}</style><h1>배치 검사 결과</h1><p>저장된 모델·전처리·PCA를 그대로 사용했습니다. 새 입력으로 다시 학습하지 않았습니다. 진성·가성 및 FN은 후보 예측이며 현장 확인이 필요합니다. 유사점수는 검증된 불량 확률이 아닙니다. 최대값 0은 판정 미확정 기준자료입니다.</p><h2>NG 판정 결과</h2>'+result['ng_summary'].to_html(index=False)
     for i,(key,m) in enumerate(bundle['models'].items(),1):
+        if on_progress:on_progress(f'PCA·보고서 저장 중 · {i}/{len(bundle["models"])} · {key[0]} / {key[1]} / 위치 {key[2]}')
         rows=result['rows'];part=rows[rows.line.eq(key[0])&rows['product'].eq(key[1])&rows.position.eq(key[2])]
         if part.empty:continue
         fig=pca_figure(bundle,key,part);name=f'{i:02d}_신규샘플_PCA.png';fig.savefig(folder/name,dpi=140,bbox_inches='tight');plt.close(fig)
@@ -357,4 +379,5 @@ def export_prediction(bundle,result):
     ngdetail=result['detail'][result['detail']['설비판정(원본)'].eq('NG')]
     body+='<h2>NG 상세 현황 (앞 500행)</h2><p>원본과 연결되는 전체 행은 상세현황_RAW연결.csv 및 샘플별_예측결과.csv에 저장됩니다.</p>'+styled_details(ngdetail.head(500)).to_html()
     (folder/'배치검사_보고서.html').write_text(body,encoding='utf-8')
+    if on_progress:on_progress('결과 CSV·PCA·보고서를 ZIP으로 묶는 중입니다.')
     result['zip']=Path(shutil.make_archive(str(folder),'zip',root_dir=folder));return result
